@@ -1,0 +1,2283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fantrie TCG — 런처(최종)</title>
+  <style>
+    :root { --bg1:#5e59d6; --bg2:#6a58d1; }
+    html, body { height:100%; margin:0; background:linear-gradient(180deg,var(--bg1),var(--bg2)); font-family:system-ui,Segoe UI,Roboto,Malgun Gothic,sans-serif; color:#eee; }
+    #frame { position:fixed; inset:12px; border:0; border-radius:16px; background:#0000; box-shadow:0 10px 40px rgba(0,0,0,.35); width:calc(100% - 24px); height:calc(100% - 24px); }
+    #hud { position:fixed; right:12px; bottom:12px; z-index:99999; background:rgba(0,0,0,.85); color:#0f0; padding:6px 8px; border-radius:6px; font:12px/1.4 monospace; max-width:60vw; }
+    #toolbar { position:fixed; left:12px; bottom:12px; z-index:99999; display:flex; gap:8px; }
+    #toolbar button { background:rgba(0,0,0,.45); color:#fff; border:1px solid rgba(255,255,255,.25); padding:6px 10px; border-radius:8px; font-size:12px; cursor:pointer; }
+    #toolbar button:hover { background:rgba(0,0,0,.65); }
+    #toolbar { display: none !important; }
+
+
+  </style>
+</head>
+<body>
+
+  <!-- 게임 iframe -->
+  <iframe id="frame" title="game"></iframe>
+
+<!-- 고정 로그아웃 버튼 -->
+<button id="btn-logout"
+  style="position:fixed; top:12px; right:12px; z-index:100000;
+         background:rgba(0,0,0,.65); color:#fff; border:1px solid rgba(255,255,255,.25);
+         padding:8px 12px; border-radius:10px; font-size:12px; cursor:pointer;
+         backdrop-filter:blur(6px); display:none;">
+  로그아웃
+</button>
+
+  <!-- 툴바 -->
+  <div id="toolbar">
+    <button id="btn-main">메인으로</button>
+    <button id="btn-clear-session">세션 토큰 삭제</button>
+  </div>
+
+
+  <!-- 진단 HUD -->
+  <div id="hud">loading…</div>
+
+  <!-- ===== 완전히 단순한 클라이언트 전용 버전 ===== -->
+  <script>
+// === CardUtils: 안전/호환/성능 플래그 ===
+window.CardUtils = window.CardUtils || {};
+(function(C){
+  // ⚙️ 플래그: 기본은 보수적
+  C.FLAGS = {
+    USE_MEMO: false,        // 처음엔 OFF → 문제 없으면 ON
+    STRICT_MASTER: false,   // 캐시 로딩 실패시 throw 여부 (기본은 continue)
+    MEMO_MAX: 100           // LRU 용량 (작게 시작)
+  };
+
+  // 🧠 간단 LRU (전역 오염 방지용 네임스페이스 내부)
+  class SimpleLRU {
+    constructor(max=100){ this.max=max; this.m=new Map(); }
+    get(k){ if(!this.m.has(k)) return; const v=this.m.get(k); this.m.delete(k); this.m.set(k,v); return v; }
+    set(k,v){ if(this.m.has(k)) this.m.delete(k); this.m.set(k,v); if(this.m.size>this.max){ const f=this.m.keys().next().value; this.m.delete(f);} }
+    clear(){ this.m.clear(); }
+  }
+  C.SimpleLRU = C.SimpleLRU || SimpleLRU;
+  const MEMO = new C.SimpleLRU(C.FLAGS.MEMO_MAX);
+
+  // 🧩 희귀도 매핑/배수(엑셀값)
+  const S2N = { c:'common', r:'rare', ur:'ultra_rare', e:'epic', g:'gold', sc:'super_common' };
+  C.RARITY_MULTIPLIER = C.RARITY_MULTIPLIER || {
+    c:{hp:1.00, atk:1.00, def:1.00, spd:1.00},
+    r:{hp:1.12, atk:1.12, def:1.12, spd:1.08},
+    ur:{hp:1.25, atk:1.25, def:1.25, spd:1.25},
+    e:{hp:1.40, atk:1.40, def:1.40, spd:1.40},
+    g:{hp:1.57, atk:1.57, def:1.57, spd:1.57},
+    sc:{hp:1.80, atk:1.80, def:1.80, spd:1.80}
+  };
+
+  // 🎯 희귀도 이름 → 접미사 코드 변환 맵
+  const NAME2SUF = {
+    'common':'c', 'rare':'r', 'ultra-rare':'ur', 'ultra_rare':'ur',
+    'epic':'e', 'gold':'g', 'super-common':'sc', 'super_common':'sc'
+  };
+
+  // 🎯 B팀 지시사항: 희귀도 문자열 정규화 함수 추가
+  const normRarity = r => String(r||'common').toLowerCase().replace(/_/g,'-');
+
+  C.applyRarityStats = function(baseStats, sufOrName){
+    // 🎯 문자열 희귀도를 접미사 코드로 변환 (정규화 적용)
+    const normalized = normRarity(sufOrName);
+    const suf = NAME2SUF[normalized] || sufOrName;
+    
+    const mul = C.RARITY_MULTIPLIER[suf] || {};
+    const out = {...(baseStats||{})};
+    for (const k in out) if (typeof out[k]==='number' && typeof mul[k]==='number') out[k] = Math.round(out[k]*mul[k]);
+    return out;
+  };
+
+  // ✅ 기존 인터페이스 유지용 얇은 파서
+  function parseSlugRaw(input){
+    const raw = String(input||'');
+    const norm = raw.trim().toLowerCase().replace(/\s+/g,'').replace(/-/g,'_');
+    const parts = norm.split('_');
+    const res = { base:null, suf:null, rarity:null, isValid:false, norm };
+    if (parts.length===2 && parts[0] && parts[1] && ['c','r','ur','e','g','sc'].includes(parts[1])) {
+      res.base = parts[0]; res.suf = parts[1]; res.rarity = S2N[res.suf]; res.isValid=true;
+    } else {
+      res.base = parts[0] || norm || null; // 폴백: base만 유지
+    }
+    return res;
+  }
+
+  // 호환: 기존 코드가 기대하는 {base,suf,rarity}
+  const _oldParse = window.parseSlug || null;
+  C.parseSlug = function(input){
+    // 메모/성능
+    if (C.FLAGS.USE_MEMO) { const hit = MEMO.get(input); if (hit) return hit; }
+    const r = parseSlugRaw(input);
+    const out = { base:r.base, suf:r.suf, rarity:r.rarity }; // 기존과 동일
+    if (C.FLAGS.USE_MEMO) MEMO.set(input, out);
+    return out;
+  };
+
+  // 확장형 필요 시 사용하는 버전 (isValid, norm 포함)
+  C.parseSlugEx = function(input){ return parseSlugRaw(input); };
+
+  // 💾 base->master 캐시 (단일 소스)
+  C.masterByBase = C.masterByBase || {};
+  function sbClient(){
+    try { return (typeof getSB==='function'?getSB(): (window.__sb_singleton||window.sb||window.supabase)) || null; }
+    catch(_){ return null; }
+  }
+
+  C.ensureMasterCache = async function(bases=[], opts={}){
+    const cfg = { strict: C.FLAGS.STRICT_MASTER, ...opts };
+    const sb = sbClient(); if (!sb) { if (cfg.strict) throw new Error('Supabase missing'); return false; }
+    const uniq = [...new Set((bases||[]).filter(Boolean))];
+    const req = uniq.filter(b => !C.masterByBase[b]);
+    if (!req.length) return true;
+    try{
+      const { data, error } = await sb.from('card_master')
+        .select('slug,name,portrait_url,base_stats,skills,main_job,sub_job')
+        .in('slug', req);
+      if (error) throw error;
+      (data||[]).forEach(m => C.masterByBase[m.slug]=m);
+      return true;
+    }catch(e){
+      console.warn('[ensureMasterCache]', e.message||e);
+      if (cfg.strict) throw e;
+      return false;
+    }
+  };
+
+  C.clearClientCaches = function(){
+    MEMO.clear();
+    C.masterByBase = {};
+  };
+  window.addEventListener('pagehide', C.clearClientCaches);
+
+})(window.CardUtils);
+
+// 기존 코드 호환성을 위한 브릿징
+window.parseSlug = window.CardUtils.parseSlug;
+
+const DEBUG = new URL(location.href).searchParams.get('debug') === '1';
+window.__HUD_LAST = { name: null, score: null };
+
+// 🎯 B팀 지시사항: Base64 인라인 폴백 이미지
+const FALLBACK_IMG = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjI4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZpbGw9IiM5OTkiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gSW1hZ2U8L3RleHQ+PC9zdmc+';
+
+// 🎯 B팀 지시사항: no-op 함수 선언
+window.ensureCardMasterCache ||= async()=>{};
+window.ensureRarityTable ||= async()=>{};
+
+// GPT 최종 수정사항 반영 - 5v5 런처 (launcher_5v5_FINAL.html)
+
+(function(){
+  const GAME_SRC = 'gpt_game_FIXED_REPAIRED_v2.html';
+  
+  // === 5v5 전투용 상수 ===
+  const PARTY_SIZE = 5;
+  
+  // 🎯 UI 표시용 희귀도 변환 함수 (메인 스코프로 이동)
+  const displayRarity = r => {
+    const normRarity = s => String(s||'common').toLowerCase().replace(/_/g,'-');
+    const n = normRarity(r);
+    return n.charAt(0).toUpperCase() + n.slice(1).replace(/-/g,' ');
+  };
+  
+  // 🎯 뱃지 생성 헬퍼 함수들
+  const createRarityBadge = (rarity) => {
+    const norm = String(rarity||'common').toLowerCase().replace(/_/g,'-').replace(/\s+/g,'-');
+    const display = displayRarity(rarity);
+    return `<span class="badge badge-${norm}">${display}</span>`;
+  };
+  
+  const createJobBadge = (job, prefix = '') => {
+    if (!job) return '';
+    const jobClass = job.toLowerCase().replace(/\s+/g,'-');
+    const jobMap = {
+      '딜러': 'dealer',
+      '탱커': 'tanker', 
+      '브루저': 'bruiser',
+      '서포터': 'support',
+      '컨트롤러': 'controller'
+    };
+    const badgeClass = jobMap[job] || jobClass;
+    return `<span class="badge badge-${badgeClass}">${prefix}${job}</span>`;
+  };
+  
+  const createAffinityBadge = (affinity) => {
+    if (!affinity) return '';
+    const affinityClass = affinity.toLowerCase();
+    return `<span class="badge badge-${affinityClass}">${affinity}</span>`;
+  };
+  
+  const hud = document.getElementById('hud');
+  const log = (...m) => {
+    console.log('[LAUNCHER]', ...m);          // 콘솔은 항상
+    const hud = document.getElementById('hud'); 
+    if (!DEBUG || !hud) return;               // ?debug=1일 때만 HUD 누적
+    hud.innerHTML += (hud.innerHTML ? '<br>' : '') + m.join(' ');
+  };
+
+  // 🎯 이미지 폴백 헬퍼 (B-3 수정사항)
+  function getImageWithFallback(portraitUrl, fallbackText = '기본 이미지') {
+    if (!portraitUrl || portraitUrl.trim() === '') {
+      console.log(`[IMAGE FALLBACK] ${fallbackText}: portrait_url이 비어있음 → 기본 이미지 사용`);
+      return FALLBACK_IMG;
+    }
+    
+    return portraitUrl;
+  }
+
+  const f = document.getElementById('frame');
+  f.src = GAME_SRC + '?t=' + Date.now();
+  
+  // ✅ 공통 유틸 - HUD 갱신 (새 기능 추가)
+  function getSB() {
+    return window.__sb_singleton || null;
+  }
+  
+  // getSB를 전역으로 노출
+  window.getSB = getSB;
+  
+  async function refreshHeaderProfile(retryCount = 0) {
+    try {
+      const sb = getSB();
+      if (!sb) { if (retryCount < 10) { setTimeout(() => refreshHeaderProfile((retryCount||0)+1), 500); } return; }
+      const { data:{ session } } = await sb.auth.getSession();
+      const uid = session?.user?.id; 
+      if (!uid) {
+        if (retryCount < 5) {
+          setTimeout(() => refreshHeaderProfile(retryCount + 1), 1000);
+        }
+        return;
+      }
+      
+      // user_profiles 조회 (Supabase가 자동 생성한 player_xxxxx 닉네임 포함)
+      let { data: prof } = await sb
+        .from('user_profiles')
+        .select('display_name, pvp_score')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      // 프로필이 없으면 대기 후 재시도 (auth trigger 완료 대기)
+      if (!prof && retryCount < 10) {
+        console.log(`[Launcher] Profile not found yet, retrying... (${retryCount + 1}/10)`);
+        setTimeout(() => refreshHeaderProfile(retryCount + 1), 1500);
+        return;
+      }
+
+      // display_name이 있으면 그대로 사용 (player_xxxxx 형태)
+      const name = prof?.display_name || 'Player';
+      const score = prof?.pvp_score ?? 1000;
+
+      // 게임 iframe 내부의 요소들 갱신
+      const gameDoc = f.contentWindow?.document;
+      if (gameDoc) {
+        const playerNameEl = gameDoc.getElementById('playerName');
+        if (playerNameEl) {
+          playerNameEl.textContent = name + ' 님 환영합니다.';
+          console.log('[Launcher] Updated playerName:', name + ' 님 환영합니다.');
+        }
+        const playerScoreEl = gameDoc.getElementById('playerScore');
+        if (playerScoreEl) {
+          playerScoreEl.textContent = String(score);
+          console.log('[Launcher] Updated playerScore:', score);
+        }
+      } else if (retryCount < 10) {
+        // iframe 문서가 아직 준비되지 않은 경우 재시도
+        setTimeout(() => refreshHeaderProfile(retryCount + 1), 500);
+      }
+    } catch (e) {
+      console.warn('[refreshHeaderProfile]', e);
+      if (retryCount < 10) {
+        setTimeout(() => refreshHeaderProfile(retryCount + 1), 1500);
+      }
+    }
+  }
+  
+  // refreshHeaderProfile을 전역으로 노출
+  window.refreshHeaderProfile = refreshHeaderProfile;
+  
+  // === 5v5 샘플링용 RNG 함수들 ===
+  function makeSeedFromString(str){
+    // 간단 해시 → uint32
+    let h = 2166136261 >>> 0;
+    for (let i=0; i<str.length; i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  function xorshift32(seed){
+    let s = seed >>> 0;
+    return function(){
+      // 0..1 실수
+      s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+      return ((s >>> 0) / 0xFFFFFFFF);
+    };
+  }
+
+  // [수정] GPT 권장 샘플러 - 중복 없이 k개 추출
+  function sampleK(arr, k, rng) {
+    const pool = [...arr].filter(Boolean);
+    const out = [];
+    for (let i = 0; i < k && pool.length; i++) {
+      const idx = Math.floor(rng() * pool.length);
+      out.push(pool[idx]);
+      pool.splice(idx, 1);
+    }
+    return out;
+  }
+  
+  f.addEventListener('load', () => {
+    const w = f.contentWindow; 
+    if (!w) return;
+    const d = w.document;
+    
+    log('iframe loaded');
+    
+    // 초기 프로필 데이터 로드 - 지연된 안정적 로드
+   // 초기 프로필 데이터 로드 - 지연된 안정적 로드
+  setTimeout(() => {
+    // 모든 바인딩 플래그 초기화
+    d.querySelectorAll('button').forEach(btn => {
+      delete btn.__bound;
+      delete btn.__gacha_bound;
+    });
+    
+    bindButtons();
+    bindGacha();
+    enableGachaInGame();
+    
+   // 전투하기 버튼 강제 활성화
+const battleBtn = d.getElementById('battleBtn');
+if (battleBtn) {
+  battleBtn.disabled = false;
+  // onclick 바인딩 제거 - bindButtons()에서 처리함
+}
+    
+    // 가챠 버튼 강제 활성화  
+    const drawBtn = d.getElementById('drawCardBtn');
+    if (drawBtn) {
+      drawBtn.disabled = false;
+      bindGacha();
+    }
+    
+    refreshHeaderProfile();
+
+// 서버 오프셋 전달
+    if (window.__serverOffsetMs !== undefined) {
+        f.contentWindow.__serverOffsetMs = window.__serverOffsetMs;
+    }
+
+  }, 1000);
+  
+  // 추가 보장을 위한 2차 갱신
+  setTimeout(() => {
+    refreshHeaderProfile();
+  }, 3000);
+    
+    // 첫 로그인 감지 및 추가 갱신
+    setTimeout(async () => {
+      try {
+        const sb = getSB();
+        if (!sb) { setTimeout(() => refreshHeaderProfile(), 500); return; }
+        const { data: { session } } = await sb.auth.getSession();
+        if (session?.user?.id) {
+          const { data: prof } = await sb
+            .from('user_profiles')
+            .select('display_name')
+            .eq('user_id', session.user.id)
+            .maybeSingle();
+          
+          // player_로 시작하면 첫 로그인으로 간주하고 추가 갱신
+          if (prof?.display_name?.startsWith('player_')) {
+            console.log('[Launcher] First login detected, additional refresh...');
+            refreshHeaderProfile();
+            setTimeout(() => refreshHeaderProfile(), 2000);
+            setTimeout(() => refreshHeaderProfile(), 5000);
+          }
+        }
+      } catch (e) {
+        console.warn('[First login check]', e);
+      }
+    }, 4000);
+    
+    // 🎯 스타일 주입 - 내 카드 보기 화면을 덱 설정과 통일
+    
+    
+    // 🎯 게임 데이터 초기화
+    w.playerData = w.playerData || {};
+    w.playerData.decks = w.playerData.decks || [[], [], [], []];
+    w.currentDeck = w.currentDeck || 0;
+    w.selectedCard = null;
+    
+    // 🎯 화면 전환 (바인딩도 함께)
+    w.showScreen = w.showScreen || function(id) {
+  try {
+    d.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+    // 화면 전환 시에만 바인딩 (주기적 바인딩 제거)
+    setTimeout(() => {
+      // 기존 바인딩 플래그 제거
+      d.querySelectorAll('button').forEach(btn => {
+        delete btn.__bound;
+        delete btn.__gacha_bound;
+      });
+      bindButtons();
+      bindGacha();
+    }, 500);
+  } catch(e) { 
+    log('Screen switch error: ' + e.message); 
+  }
+};
+    
+    // 🎯 **단일 연출 시스템** (런처에서만 처리) - 게임 스타일 이펙트 적용
+    
+    
+    // 🎯 가챠 버튼 (개선된 단일 바인딩)
+    function bindGacha() {
+      const btn = d.getElementById('drawCardBtn') || 
+                 [...d.querySelectorAll('button')].find(b => /카드.*뽑기|가챠/i.test(b.textContent||''));
+      
+      if (!btn || btn.__gacha_bound) return;
+      btn.__gacha_bound = true;
+      
+      // 완전한 이벤트 교체
+      const newBtn = btn.cloneNode(true);
+      btn.parentNode?.replaceChild(newBtn, btn);
+      
+      newBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (newBtn.disabled) return;
+        newBtn.disabled = true;
+        newBtn.textContent = '뽑는 중...';
+        
+        try {
+          const sb = window.__sb_singleton || window.supabase || window.sb;
+          const { data: { session } } = await sb.auth.getSession();
+          
+          if (!session?.access_token) {
+            alert('로그인이 필요합니다.');
+            return;
+          }
+          
+          // 1. 가챠 실행
+          const res = await fetch('https://ezuvoqehzojiqmzatzbf.supabase.co/functions/v1/draw', {
+            headers: { Authorization: 'Bearer ' + session.access_token }
+          });
+          const result = await res.json();
+          
+          if (!result.ok) {
+            alert('가챠 실패: ' + result.error);
+            return;
+          }
+          
+          const { card_slug, rarity } = result.result;
+          
+          // 2. 카드 정보 조회
+          const cardRes = await fetch(`https://ezuvoqehzojiqmzatzbf.supabase.co/rest/v1/card_master?slug=eq.${encodeURIComponent(card_slug)}&select=slug,name,portrait_url,base_stats,skills,main_job,sub_job`, { 
+            headers: { 
+              'Authorization': 'Bearer ' + session.access_token,
+              'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6dXZvcWVoem9qaXFtemF0emJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDM4ODQsImV4cCI6MjA3MDU3OTg4NH0.4B33BI-WOgoeQHvQ4XBTNwwCCfvQiuVMWRpnOOOHrjw'
+            }
+          });
+          const cards = await cardRes.json();
+          const card = cards?.[0];
+          
+          if (!card) {
+            alert('카드 정보 조회 실패');
+            return;
+          }
+          
+          log(`got: ${card.name} (${rarity})`);
+          
+          // 3. 🎯 게임 파일로 연출 위임 (postMessage)
+          const iframe = document.getElementById('frame');
+          iframe?.contentWindow?.postMessage({ 
+            type: 'REVEAL_CARD', 
+            payload: { card, rarity } 
+          }, '*');
+          
+          // 4. 선택: 카드 목록 갱신 요청 (게임 파일 함수가 있으면 호출)
+          setTimeout(() => {
+            iframe?.contentWindow?.loadOwnedFromServer?.();
+          }, 100);
+
+// 가챠 쿨타임 시작
+          setTimeout(() => {
+            iframe?.contentWindow?.cooldownManager?.startCooldown('draw', new Date().toISOString(), 60);
+          }, 200);
+          
+        } catch (error) {
+          console.error('Gacha error:', error);
+          alert('가챠 오류: ' + error.message);
+          // 즉시 새로고침으로 복구 시도
+          loadCards();
+        } finally {
+          // 5초 후 버튼 재활성화
+          setTimeout(() => { 
+            newBtn.disabled = false;
+            newBtn.textContent = '카드 뽑기';
+          }, 5000);
+        }
+      });
+    }
+    
+    // 🎯 **서버 강제 모드** - 덱 저장 (user_card_id 방식)
+    async function saveDeckToServer(deckIndex, deck) {
+    try {
+        const sb = window.__sb_singleton || window.supabase || window.sb;
+        const { data: { session } } = await sb.auth.getSession();
+        
+        // 기존 덱 삭제
+        const { error: deleteError } = await sb
+            .from('user_decks')
+            .delete()
+            .eq('user_id', session.user.id)
+            .eq('deck_index', deckIndex);
+        
+        if (deleteError) throw deleteError;
+        
+        // null이 아닌 슬롯만 저장
+        // null이 아닌 슬롯만 저장
+const validSlots = [];
+for (let i = 0; i < 10; i++) {
+    if (deck[i] && deck[i].user_card_id) {
+        const rarityMap = {
+            'common': 'c',
+            'rare': 'r',
+            'ultra-rare': 'ur',
+            'ultra_rare': 'ur',
+            'epic': 'e',
+            'gold': 'g',
+            'super-common': 'sc',
+            'super_common': 'sc'
+        };
+        
+        const slug = deck[i].card_slug || '';
+        const rarity = deck[i].rarity || 'common';
+        const normalizedRarity = rarity.toLowerCase().replace(/_/g, '-');
+        const rarityCode = rarityMap[normalizedRarity] || 'c';
+        
+        validSlots.push({
+            user_id: session.user.id,
+            deck_index: deckIndex,
+            deck_slot: i,
+            user_card_id: deck[i].user_card_id,
+            card_slug: `${slug}_${rarityCode}`  // 이제 's_g' 형태로 저장 가능
+        });
+    }
+}
+        
+        if (validSlots.length > 0) {
+            const { error: insertError } = await sb
+                .from('user_decks')
+                .insert(validSlots);
+            
+            if (insertError) throw insertError;
+        }
+        
+        log(`Deck ${deckIndex} saved: ${validSlots.length} cards`);
+        return true;
+        
+    } catch (error) {
+        console.error('Save deck failed:', error);
+        throw error;  // 상위로 에러 전파
+    }
+}
+    
+    // 덱 로드 (안정화된 쿼리)
+    async function loadDeckFromServer() {
+      try {
+        const sb = window.__sb_singleton || window.supabase || window.sb;
+        const { data: { session } } = await sb.auth.getSession();
+        
+        if (!session?.access_token || !session?.user?.id) {
+          throw new Error('로그인이 필요합니다.');
+        }
+        
+        log('📦 Loading decks from server...');
+        
+       // ✅ card_master 정보도 함께 조회 (이미지/이름 문제 해결)
+        const { data: deckData, error } = await sb
+          .from('user_decks')
+          .select(`
+            deck_index, deck_slot, card_slug, user_card_id,
+            user_cards!inner(
+              rarity,
+              card_master:card_slug (
+                slug, name, portrait_url, base_stats, skills,
+                main_job, sub_job
+              )
+            )
+          `)
+          .eq('user_id', session.user.id)
+          .order('deck_index', { ascending: true })
+          .order('deck_slot', { ascending: true });        
+        if (error) {
+          throw new Error(`덱 로드 실패: ${error.message}`);
+        }
+        
+        if (deckData && deckData.length > 0) {
+          // 덱 데이터 초기화
+          w.playerData.decks = [[], [], [], []];
+          
+          // 서버 데이터로 덱 복원 (완전한 카드 정보 포함)
+          deckData.forEach(slot => {
+            const deckIndex = slot.deck_index || 0;
+            if (deckIndex >= 0 && deckIndex < 4) {
+                if (!w.playerData.decks[deckIndex]) w.playerData.decks[deckIndex] = [];
+                
+                // 조인된 카드 정보 추출
+                const userCard = slot.user_cards;
+                const cardMaster = userCard?.card_master;
+                
+                if (cardMaster) {
+                    // 완전한 카드 정보로 덱 아이템 생성
+                    w.playerData.decks[deckIndex][slot.deck_slot] = {
+                        user_card_id: slot.user_card_id,
+                        card_slug: slot.card_slug.split('_')[0],  // 베이스 슬러그
+                        rarity: userCard.rarity || 'common',
+                        name: cardMaster.name,
+                        portrait_url: cardMaster.portrait_url,
+                        base_stats: cardMaster.base_stats,
+                        skills: cardMaster.skills,
+                        main_job: cardMaster.main_job,
+                        sub_job: cardMaster.sub_job
+                    };
+                } else {
+                    // 폴백: 기존 방식
+                    const parts = slot.card_slug.split('_');
+                    const rarityMap = {
+                        'c': 'common', 'r': 'rare', 'ur': 'ultra-rare',
+                        'e': 'epic', 'g': 'gold', 'sc': 'super_common'
+                    };
+                    
+                    w.playerData.decks[deckIndex][slot.deck_slot] = {
+                        user_card_id: slot.user_card_id,
+                        card_slug: parts[0],
+                        rarity: rarityMap[parts[1]] || 'common'
+                    };
+                }
+            }
+          });          
+          // 배열 정리 (undefined 제거)
+          w.playerData.decks.forEach(deck=>{for(let i=0;i<10;i++){if(deck[i]===undefined)deck[i]=null;} deck.length=10;});
+          
+          const deckSizes = w.playerData.decks.map(d => d.length).join(',');
+          log(`덱 로드 완료: [${deckSizes}]`);
+          console.log('[loadDeck] rows:', deckData.length, 'composed:', w.playerData.decks.reduce((a,b)=>a+b.length,0));
+          
+          // UI 업데이트
+          refreshDeckUI();
+          return true;
+        } else {
+          log('📦 No deck data on server');
+          return false;
+        }
+        
+      } catch (error) {
+        console.error('Load deck from server failed:', error);
+        log(`덱 로드 오류: ${error.message}`);
+        
+        alert(`덱 로드 실패!\n${error.message}\n\n서버 연결을 확인해주세요.`);
+        return false;
+      }
+    }
+    
+    // 🎯 카드 목록 로드 (PostgREST 임베디드 조인 활용) - 수정된 버전
+    async function loadCards() {
+      try {
+        // 🎯 B팀 지시사항: 비동기 타이밍 보장
+        try { if (window.ensureCardMasterCache) await window.ensureCardMasterCache(); } catch (e) { console.warn('ensureCardMasterCache failed', e); }
+        try { if (window.ensureRarityTable) await window.ensureRarityTable(); } catch (e) { console.warn('ensureRarityTable failed', e); }
+        
+        const sb = window.__sb_singleton || window.supabase || window.sb;
+        const { data: { session } } = await sb.auth.getSession();
+        
+        if (!session?.access_token) {
+          log('⚠️ Not logged in, cannot load cards');
+          return;
+        }
+        
+        // 🎯 먼저 카드 데이터를 가져옴
+        const { data: userCards, error } = await sb
+          .from('user_cards')
+          .select(`
+            id, rarity, obtained_at,
+            card_master:card_slug (
+              slug, name, portrait_url, base_stats, skills,
+              main_job, sub_job
+            )
+          `)
+          .eq('user_id', session.user.id)
+          .order('obtained_at', { ascending: false });
+
+        console.log('[TEST] First card skills:', userCards?.[0]?.card_master?.skills);
+
+        if (error) {
+          throw new Error(`카드 목록 로드 실패: ${error.message}`);
+        }
+        
+        // 🎯 전역 변수에 카드 데이터 저장 (필터링용)
+        w.allUserCards = userCards || [];
+// O(1) lookup map for user_card_id → userCard
+w.userCardById = Object.create(null);
+(userCards || []).forEach(uc => { w.userCardById[uc.id] = uc; });
+
+        
+        // 🎯 카드 캐시 생성 (덱 UI에서 slug→정보 매핑용)
+        w.cardCache = {};
+        w.cardBySlug = {};  // ✅ 추가 인덱스 - slug로 직접 접근용
+        (userCards || []).forEach(uc => {
+          const card = uc.card_master;
+          if (card) {
+            // 🎯 GPT 제안: base_stats에서 affinity 파싱
+            const affinity = card.base_stats?.affinity || null;
+            
+            // 🎯 slug 보장 - ID 추가로 유니크하게
+            const slugKey = `${uc.id}_${card.slug || uc.card_slug}`;
+            
+            const cardInfo = {
+              name: card.name,
+              portrait_url: card.portrait_url,
+              base_stats: card.base_stats,
+              rarity: uc.rarity,
+              main_job: card.main_job,
+              sub_job: card.sub_job,
+              affinity: affinity,
+              skills: card.skills || {}
+            };
+            
+            w.cardCache[slugKey] = cardInfo;
+            if (card.slug) w.cardBySlug[card.slug] = cardInfo;  // ✅ slug→info 직접 매핑
+            console.log(`[Cache] Storing card: ${card.name} (${card.slug}) with image: ${card.portrait_url ? 'YES' : 'NO'}`);
+            if (card.skills?.active?.description) {
+              console.log(`[SKILL OK] ${card.name}: ${card.skills.active.description.substring(0, 30)}...`);
+            } else {
+              console.log(`[SKILL MISSING] ${card.name}: No active description`);
+            }
+          }
+        });
+        
+        // 🎯 새로 추가: 필터 이벤트 바인딩
+        bindFilterEvents();
+        
+        // 🎯 초기 카드 목록 표시
+        setTimeout(() => filterAndDisplayCards(), 100);
+        
+        // 내 카드 보기 화면 - 개선된 포맷
+        const cardCollection = d.getElementById('cardCollection');
+        if (cardCollection) {
+          cardCollection.innerHTML = '';
+          (userCards || []).forEach(uc => {
+            const card = uc.card_master;
+            if (!card) return;
+            
+            const cardEl = d.createElement('div');
+            cardEl.className = 'card';
+            
+            // 🎯 사용자 요청 포맷에 맞게 개선 - 어두운 테마 적용
+            const affinity = card.base_stats?.affinity || 'Unknown';
+            const mainJob = card.main_job || '';
+            const subJob = card.sub_job || '';
+            const stats = card.base_stats || {};
+            const skills = card.skills || {};
+            
+            // 스킬 정보 추출
+            const activeSkill = skills.active ? `액티브: ${skills.active.name || '미지의 스킬'}` : '액티브: 없음';
+            const passiveSkill = skills.passive ? `패시브: ${skills.passive.name || '미지의 스킬'}` : '패시브: 없음';
+            
+            // 희귀도에 따른 클래스 추가 - 정규화 적용
+            const normRarity = r => String(r||'common').toLowerCase().replace(/_/g,'-').replace(/\s+/g,'-');
+            cardEl.classList.add(normRarity(uc.rarity));
+            
+            // 🎯 이미지 폴백 적용
+            const cardImageSrc = getImageWithFallback(card.portrait_url, `컬렉션 - ${card.name}`);
+            
+            cardEl.innerHTML = `
+              <div style="border-radius:8px 8px 0 0;overflow:hidden;background:#0a0f22;border-bottom:2px solid #22285a;aspect-ratio:2/3;">
+                <img src="${cardImageSrc}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.src='${FALLBACK_IMG}';this.onerror=null;">
+              </div>
+              <div style="padding:12px;background:rgba(10,13,32,0.8);border-radius:0 0 8px 8px;">
+                <div style="font-weight:800;color:#fff;margin-bottom:6px;font-size:16px;text-shadow:0 1px 2px rgba(0,0,0,0.5);">${card.name}</div>
+                <div style="margin-bottom:6px;">${createRarityBadge(uc.rarity)}</div>
+                <div style="margin-bottom:6px;">
+                  ${mainJob ? createJobBadge(mainJob) : ''}${subJob ? createJobBadge(subJob) : ''}
+                </div>
+                <div style="margin-bottom:8px;">${affinity ? createAffinityBadge(affinity) : ''}</div>
+                <div style="background:rgba(0,0,0,0.4);padding:8px;border-radius:6px;margin-bottom:6px;">
+                  <div style="color:#e9ecff;font-weight:600;margin-bottom:4px;font-size:12px;">
+                    HP ${stats.hp??'-'} | ATK ${stats.atk??'-'}
+                  </div>
+                  <div style="color:#e9ecff;font-weight:600;font-size:12px;">
+                    DEF ${stats.def??'-'} | SPD ${stats.spd??'-'}
+                  </div>
+                </div>
+                <div style="background:rgba(0,0,0,0.3);padding:8px;border-radius:6px;">
+                  <div style="color:#9aa1c6;font-size:11px;line-height:1.4;">
+                    <div style="margin-bottom:3px;color:#cfd5ff;">${activeSkill}</div>
+                    <div style="color:#cfd5ff;">${passiveSkill}</div>
+                  </div>
+                </div>
+              </div>
+            `;
+            cardCollection.appendChild(cardEl);
+          });
+        }
+        
+        log(`✅ loaded ${userCards?.length || 0} cards`);
+        console.log('[loadCards] uc:', userCards?.length || 0, 'rendered:', cardCollection?.children?.length || 0);
+        
+        // 내 카드 보기 필터 초기화
+        setTimeout(() => initCardFilters(), 500);
+        
+        // 🎯 카드 목록 표시 - cardCache 확인 후 실행
+        if (Object.keys(w.cardCache || {}).length > 0) {
+          filterAndDisplayCards();
+        } else {
+          setTimeout(() => filterAndDisplayCards(), 200);
+        }
+        
+        // 🎯 타이밍 보정: 초기 로딩 시 빈 목록 문제 해결
+        setTimeout(() => {
+          const ownedList = d.getElementById('ownedList');
+          if (ownedList && ownedList.children.length === 0) {
+            filterAndDisplayCards();
+          }
+        }, 150);
+        
+        // 캐시 보강
+        const bases = [...new Set((userCards||[]).map(uc => uc.card_master?.slug).filter(Boolean))];
+        await CardUtils.ensureMasterCache(bases).catch(()=>{ /* 기존 플로우 계속 */ });
+        
+      } catch (error) {
+        console.error('Load cards failed:', error);
+        log(`⚠ Load cards error: ${error.message}`);
+        alert(`카드 목록 로드 실패!\n${error.message}`);
+      }
+    }
+    
+    // 카드 필터 시스템
+    
+    
+    // 🎯 새로 추가: 필터 이벤트 바인딩
+    
+    
+    // 🎯 새로 추가: 필터 적용 및 카드 목록 표시
+    
+    
+    // 🎯 HTML 태그 제거 함수
+    function stripHTMLTags(text) {
+      if (!text) return '';
+      return text.replace(/<[^>]*>/g, '').trim();
+    }
+    
+    // 🎯 상세 정보 업데이트
+    
+    
+    // 덱에 추가 (user_card_id 방식)
+    async function addToDeck() {
+try {
+        if (!w.selectedCard) {
+          alert('카드를 먼저 선택해주세요.');
+          return;
+        }
+        
+        const card = w.selectedCard;
+        const deckIndex = w.currentDeck || 0;
+        const deck = w.playerData.decks[deckIndex];
+        
+        // user_card_id 확인
+        if (!card.user_card_id) {
+          alert('카드 정보가 불완전합니다. 다시 선택해주세요.');
+          return;
+        }
+        
+        // 중복 확인 (user_card_id 기준)
+        const isDuplicate = deck.some(item => {
+          if (typeof item === 'object') {
+            return item.user_card_id === card.user_card_id;
+          }
+          return false;
+        });
+        
+        if (isDuplicate) {
+          alert(`${card.name}은(는) 이미 덱에 있습니다.`);
+          return;
+        }
+        
+        // 10장 제한
+        if (deck.length >= 10) {
+          alert('덱이 가득 찼습니다. (최대 10장)');
+          return;
+        }
+        
+      // 덱에 추가 (user_card_id와 카드 정보) - 임시로만
+        let arr = w.playerData.decks[deckIndex] || [];
+        let nextSlot = arr.findIndex(x => x == null);
+        if (nextSlot === -1) nextSlot = Math.min(arr.length, 9);
+        w.playerData.decks[deckIndex][nextSlot] = { user_card_id: card.user_card_id, card_slug: card.slug, rarity: card.rarity };
+
+        
+        // 서버 저장 제거 - 저장 버튼을 눌러야만 저장됨
+        // const saveSuccess = await saveDeckToServer(deckIndex, deck);
+        // 
+        // if (!saveSuccess) {
+        //     // 서버 저장 실패 시 로컬에서도 제거
+        //     deck.pop();
+        //     return;
+        // }
+        
+        // UI 업데이트
+        refreshDeckUI();
+        
+        alert(`${card.name}을(를) 덱에 추가했습니다!`);
+        log(`added: ${card.name} to deck ${deckIndex}`);
+        
+      } catch (error) {
+        console.error('Add to deck failed:', error);
+        alert('덱 추가 실패: ' + error.message);
+      }
+    }
+    
+    // 🎯 덱 UI 새로고침 (이미지/이름 매핑 포함) - 강력한 이벤트 바인딩
+    // 수정된 refreshDeckUI - 재시도 카운터 추가
+    
+    
+    // 🎯 제거 버튼 활성화 함수
+    
+    
+    // 🎯 덱에서 제거 (기존 함수 수정 - 팝업 제거, 이름 제대로 표시)
+    async function removeFromDeck(cardSlug, slotIndex = -1) {
+      try {
+        const deckIndex = w.currentDeck || 0;
+        const deck = w.playerData.decks[deckIndex];
+        
+        // 🎯 객체 배열과 문자열 배열 모두 처리
+        let cardIndex = -1;
+        
+        if (w.selectedCard && w.selectedCard.user_card_id) {
+          // user_card_id로 찾기 (새 방식)
+          cardIndex = deck.findIndex(item => 
+            typeof item === 'object' && item.user_card_id === w.selectedCard.user_card_id
+          );
+        }
+        
+        if (cardIndex === -1) {
+          // 문자열로 찾기 (기존 방식 호환)
+          cardIndex = deck.findIndex(item => {
+            if (typeof item === 'string') return item === cardSlug;
+            if (typeof item === 'object') return item.card_slug === cardSlug;
+            return false;
+          });
+        }
+        
+        if (cardIndex > -1) {
+          deck.splice(cardIndex, 1);
+        }
+        
+        // 🎯 서버에 저장 (강제 모드)
+        const saveSuccess = await saveDeckToServer(deckIndex, deck);
+        
+        if (!saveSuccess) {
+          // 서버 저장 실패 시 복원
+          if (cardIndex > -1) {
+            deck.splice(cardIndex, 0, cardSlug);
+          }
+          return;
+        }
+        
+        // UI 업데이트
+        refreshDeckUI();
+        
+        // 선택 해제
+        w.selectedCard = null;
+        const name = d.getElementById('detailName');
+        if (name) name.textContent = '선택된 카드 없음';
+        
+        log(`removed from deck: ${cardSlug}`);
+        
+      } catch (error) {
+        console.error('Remove from deck failed:', error);
+        alert('덱 제거 실패: ' + error.message);
+      }
+    }
+    
+    // 🎯 덱 비우기
+    async function clearDeck() {
+      try {
+        const deckIndex = w.currentDeck || 0;
+        const deck = w.playerData.decks[deckIndex];
+        
+        if (!deck || deck.length === 0) {
+          alert('덱이 이미 비어있습니다.');
+          return;
+        }
+        
+        if (!confirm(`덱 ${deckIndex + 1}의 모든 카드를 제거하시겠습니까?`)) {
+          return;
+        }
+        
+        // 백업
+        const backupDeck = [...deck];
+        
+        // 덱 데이터 클리어
+        deck.length = 0;
+        
+        // 🎯 서버에 저장 (강제 모드)
+        const saveSuccess = await saveDeckToServer(deckIndex, deck);
+        
+        if (!saveSuccess) {
+          // 서버 저장 실패 시 복원
+          deck.push(...backupDeck);
+          return;
+        }
+        
+        // UI 업데이트
+        refreshDeckUI();
+        
+        log(`cleared deck ${deckIndex}`);
+        alert(`덱 ${deckIndex + 1}을(를) 비웠습니다.`);
+        
+      } catch (error) {
+        console.error('Clear deck failed:', error);
+        alert('덱 비우기 실패: ' + error.message);
+      }
+    }
+    
+    // 🎯 대표덱 설정
+    async function setMainDeck() {
+      try {
+        const deckIndex = w.currentDeck || 0;
+        const deck = w.playerData.decks[deckIndex];
+        const deckSize = deck ? deck.length : 0;
+        
+        log(`setting main deck: deck ${deckIndex}, size: ${deckSize}`);
+        
+        // 🎯 10장 체크
+        if (deckSize < 10) {
+          alert(`카드를 10장 선택해야 합니다. (현재: ${deckSize}/10)`);
+          log(`main deck failed: only ${deckSize}/10 cards`);
+          return;
+        }
+        
+        // 대표덱 설정
+        w.playerData.mainDeck = deckIndex;
+        await saveMainDeckToServer(deckIndex);
+        
+        // 🎯 대표덱 시각적 표시 업데이트
+        updateMainDeckIndicator();
+        
+        alert(`✅ 덱 ${deckIndex + 1}을(를) 대표덱으로 설정했습니다!`);
+        log(`main deck set: deck ${deckIndex}`);
+        
+      } catch (error) {
+        console.error('Set main deck failed:', error);
+        alert('대표덱 설정 실패: ' + error.message);
+      }
+    }
+    
+    // 🎯 새로 추가: 대표덱 표시 업데이트
+    function updateMainDeckIndicator() {
+      try {
+        const mainDeckIndex = w.playerData.mainDeck;
+        
+        // 모든 덱 탭에서 main-deck 클래스 제거
+        d.querySelectorAll('.deck-tab').forEach((tab, index) => {
+          tab.classList.remove('main-deck');
+          
+          // 기존 별표 제거
+          const existingStar = tab.querySelector('.main-deck-star');
+          if (existingStar) existingStar.remove();
+          
+          // 대표덱에 별표 추가
+          if (index === mainDeckIndex) {
+            tab.classList.add('main-deck');
+            
+            const star = d.createElement('div');
+            star.className = 'main-deck-star';
+            star.style.cssText = `
+              position: absolute;
+              top: -5px;
+              right: -5px;
+              background: #ffd700;
+              color: #000;
+              border-radius: 50%;
+              width: 20px;
+              height: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 12px;
+              font-weight: bold;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            `;
+            star.textContent = '★';
+            
+            tab.style.position = 'relative';
+            tab.appendChild(star);
+          }
+        });
+        
+        log(`Updated main deck indicator: deck ${mainDeckIndex + 1}`);
+        
+      } catch (error) {
+        console.error('Update main deck indicator failed:', error);
+      }
+    }
+    
+    // 🎯 버튼 바인딩 (주기적 호출 제거, 화면 전환 시에만)
+    
+    // === BATTLE: build teams && start flow (5v5 수정) ===
+    async function loadMainDeckFromServer() {
+      try {
+        const sb = window.__sb_singleton || window.supabase || window.sb;
+        const { data:{ session } } = await sb.auth.getSession();
+        if (!session?.user?.id) return null;
+        const { data: profRows, error: profErr } = await sb
+          .from('user_profiles')
+          .select('main_deck_index')
+          .eq('user_id', session.user.id)
+          .limit(1);
+        if (profErr) { console.log('user_profiles read error', profErr); return null; }
+        const mdi = (profRows && profRows[0] && typeof profRows[0].main_deck_index === 'number')
+          ? profRows[0].main_deck_index : null;
+        if (mdi !== null && mdi >= 0 && mdi < 4) {
+          w.playerData.mainDeck = mdi;
+          updateMainDeckIndicator && updateMainDeckIndicator();
+          return mdi;
+        }
+        return null;
+      } catch (e) {
+        console.log('loadMainDeckFromServer error', e);
+        return null;
+      }
+    }
+
+    async function saveMainDeckToServer(deckIndex){
+      try{
+        const sb = window.__sb_singleton || window.supabase || window.sb;
+        const { data:{ session } } = await sb.auth.getSession();
+        if (!session?.user?.id) throw new Error('로그인이 필요합니다.');
+        const payload = { user_id: session.user.id, main_deck_index: deckIndex, updated_at: new Date().toISOString() };
+        const { error } = await sb.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
+        if (error) throw error;
+        return true;
+      }catch(e){
+        console.error('saveMainDeckToServer error', e);
+        alert('대표덱 저장 실패: ' + (e.message||e));
+        return false;
+      }
+    }
+
+    async function getActiveDeckIndex() {
+      const sb = window.__sb_singleton || window.supabase || window.sb;
+      const { data:{ session } } = await sb.auth.getSession();
+      if (!session?.user?.id) throw new Error('로그인이 필요합니다.');
+      let mdi = w.playerData.mainDeck;
+      if (typeof mdi !== 'number') {
+        const tmp = await loadMainDeckFromServer();
+        if (typeof tmp === 'number') mdi = tmp;
+      }
+      if (typeof mdi === 'number') return mdi;
+      const { data: slots } = await sb.from('user_decks').select('deck_index,deck_slot').eq('user_id', session.user.id);
+      const counts = [0,0,0,0]; (slots||[]).forEach(s=>{ if (s.deck_index>=0 && s.deck_index<4) counts[s.deck_index]++; });
+      const full = counts.findIndex(c=>c>=10);
+      return full!==-1 ? full : (w.currentDeck||0);
+    }
+
+    // 내 덱 10장 로드 함수 (새 기능)
+async function loadMyDeckAsCards() {
+  try {
+    const sb = window.__sb_singleton || window.supabase || window.sb;
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session?.user?.id) throw new Error('로그인이 필요합니다.');
+    
+    // 대표덱 인덱스 가져오기
+    const { data: profile } = await sb
+      .from('user_profiles')
+      .select('main_deck_index')
+      .eq('user_id', session.user.id)
+      .single();
+    
+    const deckIndex = profile?.main_deck_index ?? 0;
+    
+    // 덱 카드 가져오기 (user_card_id 방식으로 변경)
+    const { data: deckRows } = await sb
+      .from('user_decks')
+      .select('deck_slot, user_card_id, card_slug')
+      .eq('user_id', session.user.id)
+      .eq('deck_index', deckIndex)
+      .order('deck_slot', { ascending: true });
+    
+    if (!deckRows || deckRows.length < 10) {
+      console.warn('[loadMyDeckAsCards] 덱이 10장 미만:', deckRows?.length || 0);
+      return [];
+    }
+    
+    // user_card_id로 user_cards + card_master 조인해서 데이터 가져오기 (카드 컬렉션과 동일한 방식)
+    const userCardIds = deckRows.map(r => r.user_card_id).filter(Boolean);
+    
+    const { data: userCards } = await sb
+      .from('user_cards')
+      .select(`
+        id, rarity, obtained_at,
+        card_master:card_slug (
+          slug, name, portrait_url, base_stats, skills,
+          main_job, sub_job
+        )
+      `)
+      .in('id', userCardIds)
+      .eq('user_id', session.user.id);
+    
+    if (!userCards || userCards.length === 0) {
+      console.warn('[loadMyDeckAsCards] user_cards 조회 실패');
+      return [];
+    }
+    
+    // user_card_id -> userCard 매핑
+    const userCardMap = {};
+    userCards.forEach(uc => {
+      userCardMap[uc.id] = uc;
+    });
+    
+    // 원본 덱 순서대로 카드 반환
+    return deckRows.map(row => {
+      const userCard = userCardMap[row.user_card_id];
+      if (userCard && userCard.card_master) {
+        const card = userCard.card_master;
+        return {
+          slug: row.card_slug,  // 'a_sc' 형태 유지 (희귀도 포함)
+          name: card.name,
+          portrait_url: card.portrait_url,
+          base_stats: card.base_stats,
+          skills: card.skills,
+          main_job: card.main_job,
+          sub_job: card.sub_job
+        };
+      }
+      return null;
+    }).filter(Boolean).slice(0, 10);
+    
+  } catch (error) {
+    console.error('[loadMyDeckAsCards] Error:', error);
+    return [];
+  }
+}
+
+    // 전투 시작 플로우 (새 기능 추가)
+async function startBattleFlow() {
+  try {
+    console.log('[DEBUG] startBattleFlow 시작');
+    
+    const sb = window.__sb_singleton || window.supabase || window.sb;
+    if (!sb) {
+      console.error('[ERROR] Supabase client not found');
+      const iframe = document.getElementById('frame');
+      if (iframe?.contentWindow?.showDeckWarningModal) {
+        iframe.contentWindow.showDeckWarningModal();
+      }
+      return;
+    }
+    
+    const { data: { session } } = await sb.auth.getSession();
+        if (!session?.user) { 
+          const iframe = document.getElementById('frame');
+          if (iframe?.contentWindow?.showDeckWarningModal) {
+            iframe.contentWindow.showDeckWarningModal();
+          }
+          return; 
+        }
+        
+        // ✅ matchmake 호출 (새 기능)
+        const { data: mm, error } = await sb.functions.invoke('matchmake', { body: {} });
+        if (error) throw error;
+        if (!mm?.ok) { 
+          console.warn('[MM error]', mm); 
+          throw new Error('매치메이킹 실패');
+        }
+        
+        // 서버-클라 시간 오프셋(쿨다운 대비) (새 기능)
+        window.__serverOffsetMs = Date.now() - Date.parse(mm?.server_now || new Date().toISOString());
+        
+        // VS 표시에 필요한 이름/메타 보장
+        const meName = mm?.names?.me || 'Me';
+        const oppName = mm?.names?.opp || meName; // 무상대 → 미러
+        const matchId = mm?.match?.id || null;
+        const seed = mm?.match?.seed || String(Date.now());
+        const party = mm?.match?.party_size || 5;
+        
+        // 메인화면 닉네임 업데이트
+        const gameDoc = f.contentWindow?.document;
+        if (gameDoc) {
+          const playerNameEl = gameDoc.getElementById('playerName');
+          if (playerNameEl) {
+            playerNameEl.textContent = meName;
+          }
+        }
+        
+        // 3) 내 10장 / 상대 10장
+        const my10 = await loadMyDeckAsCards();
+        const opp10 = (mm.cards && mm.cards.length >= 10) ? mm.cards : my10;
+        
+
+
+       if (my10.length < 10) { 
+  // 게임 파일의 모달 표시 함수 호출
+  const iframe = document.getElementById('frame');
+  if (iframe?.contentWindow?.showDeckWarningModal) {
+    iframe.contentWindow.showDeckWarningModal();
+  }
+  return; 
+}
+        if (opp10.length < 10) { 
+          const iframe = document.getElementById('frame');
+          if (iframe?.contentWindow?.showDeckWarningModal) {
+            iframe.contentWindow.showDeckWarningModal();
+          }
+          return; 
+        }
+        
+        // 4) 5장 샘플링(중복 없음, 시드고정)
+        const rngA = xorshift32(makeSeedFromString(seed + '|A'));
+        const rngB = xorshift32(makeSeedFromString(seed + '|B'));
+        const teamA = sampleK(my10, party, rngA);
+        const teamB = sampleK(opp10, party, rngB);
+        
+        // 전투 전 캐시 보강
+        const allSlugs = [...teamA, ...teamB].map(c => c.slug || c.name);
+        const bases = [...new Set(allSlugs.map(s => CardUtils.parseSlug(s).base).filter(Boolean))];
+        await CardUtils.ensureMasterCache(bases).catch(()=>{ /* 기존 플로우 계속 */ });
+        
+        // 팀A/B 준비 - 계약에 맞는 payload 구성
+        const payload = {
+          meta: { match_id: matchId, seed, partySize: party, meName, oppName, serverNow: mm?.server_now },
+          teams: { A: teamA.map(c => {
+            const fullSlug = c.slug || c.name;
+            const parsed = CardUtils.parseSlug(fullSlug);
+            return {
+              slug: fullSlug,                                                           // 전체 슬러그 (로그/키용)
+              base_slug: parsed.base,                                                   // 조회용 베이스
+              suf: parsed.suf,                                                          // 희귀도 suffix
+              base_stats: c.base_stats || {},                                          // 원본 (디버깅/표시용)
+              stats: CardUtils.applyRarityStats(c.base_stats||{}, parsed.suf),        // ✅ 희귀도 반영 최종 스탯 (전투는 이 값만 사용)
+              name: c.name,
+              portrait_url: c.portrait_url || '',
+              skills: c.skills || {},
+              main_job: c.main_job || '',                                             // ✅ 추가
+              sub_job: c.sub_job || '',                                               // ✅ 추가
+              affinity: c.base_stats?.affinity || ''                                  // ✅ 최상위로 이동
+            };
+          }), B: teamB.map(c => {
+            const fullSlug = c.slug || c.name;
+            const parsed = CardUtils.parseSlug(fullSlug);
+            return {
+              slug: fullSlug,                                                           // 전체 슬러그 (로그/키용)
+              base_slug: parsed.base,                                                   // 조회용 베이스
+              suf: parsed.suf,                                                          // 희귀도 suffix
+              base_stats: c.base_stats || {},                                          // 원본 (디버깅/표시용)
+              stats: CardUtils.applyRarityStats(c.base_stats||{}, parsed.suf),        // ✅ 희귀도 반영 최종 스탯 (전투는 이 값만 사용)
+              name: c.name,
+              portrait_url: c.portrait_url || '',
+              skills: c.skills || {},
+              main_job: c.main_job || '',                                             // ✅ 추가
+              sub_job: c.sub_job || '',                                               // ✅ 추가
+              affinity: c.base_stats?.affinity || ''                                  // ✅ 최상위로 이동
+            };
+          }) }
+        };
+        
+        window.__lastBattlePayload = payload; // 디버깅용
+
+        // === 디버깅 로그 추가 (게임팀 요청) ===
+        console.log('=== BATTLE PAYLOAD DEBUG ===');
+        console.log('Team A first card:', JSON.stringify(payload.teams.A[0], null, 2));
+        console.log('Team B first card:', JSON.stringify(payload.teams.B[0], null, 2));
+        console.log('--- Skills Debug ---');
+        console.log('Team A Skills:', payload.teams.A[0].skills);
+        console.log('Team A Skills type:', typeof payload.teams.A[0].skills);
+        console.log('Team A Skills keys:', Object.keys(payload.teams.A[0].skills || {}));
+        console.log('--- Jobs Debug ---');
+        console.log('Team A main_job:', payload.teams.A[0].main_job);
+        console.log('Team A sub_job:', payload.teams.A[0].sub_job);
+        console.log('--- Affinity Debug ---');
+        console.log('Team A base_stats.affinity:', payload.teams.A[0].base_stats?.affinity);
+        console.log('=========================');
+
+// 게임에 직접 설정
+f.contentWindow.__battlePayload = payload;
+
+// 게임에 메시지 전송 + 화면 전환
+f.contentWindow.postMessage({ type: 'START_BATTLE', payload }, '*');
+        
+        const w = f.contentWindow;
+        if (w && w.showScreen) {
+          w.showScreen('battleScreen');
+        }
+        
+        log(`[MM] Match started: ${meName} vs ${oppName}`);
+        
+    } catch (error) {
+  console.error('[startBattleFlow] Error:', error);
+  
+  // matchmake 함수에서 실제 응답 내용을 확인해보자
+  try {
+    const sb = window.__sb_singleton || window.supabase || window.sb;
+    const { data: { session } } = await sb.auth.getSession();
+    
+    const response = await fetch('https://ezuvoqehzojiqmzatzbf.supabase.co/functions/v1/matchmake', {
+      method: 'POST',
+      headers: { 
+        'Authorization': 'Bearer ' + session.access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
+    
+    const responseText = await response.text();
+    console.log('[DEBUG] Response status:', response.status);
+    console.log('[DEBUG] Response text:', responseText);
+    
+    if (response.status === 429) {
+      const data = JSON.parse(responseText);
+      alert(`전투 쿨타임: ${data.message || '잠시 후 다시 시도하세요'}`);
+      return;
+    }
+    
+  } catch (fetchError) {
+    console.log('[DEBUG] Fetch error:', fetchError);
+  }
+  
+  // 다른 에러일 때
+  const iframe = document.getElementById('frame');
+  if (iframe?.contentWindow?.showDeckWarningModal) {
+    iframe.contentWindow.showDeckWarningModal();
+  }
+}
+}
+    // 전투 결과 수신 및 보고 (멱등 + 프론트 중복가드 버전)
+    (function installBattleResultHandler(){
+      // 중복 리스너 방지
+      if (window.__battleHandlerInstalled) return;
+      window.__battleHandlerInstalled = true;
+
+      // 프론트 단 중복 가드 (match_id -> 'pending'|'done')
+      const guard = new Map();
+      const isPending = (id) => guard.get(id) === 'pending';
+      const isDone    = (id) => guard.get(id) === 'done';
+      const markPending = (id) => guard.set(id, 'pending');
+      const markDone    = (id) => { guard.set(id, 'done'); setTimeout(()=>guard.delete(id), 60_000); };
+
+      window.addEventListener('message', async function onBattleResult(e) {
+        if (e?.data?.type !== 'BATTLE_RESULT') return;
+
+        try {
+          const payload = e.data?.payload || {};
+          const match_id = payload.match_id;
+          const winner   = payload.winner;
+          if (!match_id || !winner) {
+            console.warn('[BATTLE_RESULT] missing match_id/winner', payload);
+            return;
+          }
+
+          // 프론트 가드: 처리 중/처리 완료된 동일 match_id는 드롭
+          if (isPending(match_id)) { 
+            console.log('[BATTLE_RESULT] duplicate while pending, dropped:', match_id); 
+            return; 
+          }
+          if (isDone(match_id)) { 
+            console.log('[BATTLE_RESULT] duplicate after done, dropped:', match_id); 
+            return; 
+          }
+          markPending(match_id);
+
+          // Supabase 클라
+          const sb = (typeof getSB === 'function') ? getSB() : window.__sb_singleton;
+          if (!sb) throw new Error('Supabase client not found');
+
+          // 서버(Edge)로 보고 – 서버는 apply_score_delta_idem + matches 소비로 멱등 처리
+          const rep = await sb.functions.invoke('report_battle', { body: { match_id, winner } });
+          console.log('[REPORT_BATTLE]', rep.data || rep.error);
+
+          // 성공 → 완료로 마킹
+          markDone(match_id);
+
+          // HUD 즉시 갱신
+          if (typeof refreshHeaderProfile === 'function') {
+            await refreshHeaderProfile();
+          }
+
+          // 리더보드 열려있으면 재조회
+          const iframe = document.getElementById('frame');
+          if (window.__leaderboardOpen && typeof iframe?.contentWindow?.refreshLeaderboardCurrentTab === 'function') {
+            await iframe.contentWindow.refreshLeaderboardCurrentTab();
+          }
+
+          try { typeof log === 'function' && log(`[REPORT] Battle result: ${winner}`); } catch(_){}
+
+        } catch (error) {
+          // 실패 시 재시도 허용을 위해 가드 해제
+          const mid = e?.data?.payload?.match_id;
+          if (mid) guard.delete(mid);
+
+          console.warn('[BATTLE_RESULT handler]', error);
+          alert('전투 결과 반영 실패. 잠시 후 다시 시도해주세요.');
+        }
+      });
+    })();
+
+
+    function bindButtons() {
+      const buttons = [
+        { selector: '#mainScreen button, #mainScreen a', text: /전투하기/, action: async () => { await startBattleFlow(); } },
+        { selector: '#mainScreen button, #mainScreen a', text: /덱.*설정/, action: () => { 
+          w.showScreen('deckScreen');  // ✅ 화면 전환만 호출
+          // ⌧ loadCards(), loadDeckFromServer(), refreshDeckUI() 제거 - 게임파일이 자체 처리
+        }},
+        { selector: '#mainScreen button, #mainScreen a', text: /내.*카드.*보기/, action: () => { 
+          w.showScreen('cardsScreen');  // ✅ 화면 전환만 호출
+          // ⌧ loadCards() 제거 - 게임파일이 자체 처리
+        }},
+        { selector: '#deckScreen button, #deckScreen a', text: /메인으로/, action: () => w.showScreen('mainScreen') },
+        { selector: '#cardsScreen button, #cardsScreen a', text: /메인으로/, action: () => w.showScreen('mainScreen') },
+        { selector: '#battleScreen button, #battleScreen a', text: /메인으로/, action: () => w.showScreen('mainScreen') },
+        { selector: '#deckScreen button, #deckScreen a', text: /(대표.*덱|대표.*설정)/, action: setMainDeck },
+        { selector: '#deckScreen button, #deckScreen a', text: /(덱.*비우기|비우기|Clear)/, action: clearDeck }
+      ];
+      
+      buttons.forEach(({ selector, text, action }) => {
+        d.querySelectorAll(selector).forEach(btn => {
+          if (text.test(btn.textContent || '') && !btn.__bound) {
+            btn.__bound = true;
+            btn.addEventListener('click', (e) => {
+              e.preventDefault();
+              action();
+            }, true);
+          }
+        });
+      });
+      
+      // 🎯 덱 탭 바인딩 (대표덱 표시 업데이트 포함)
+      d.querySelectorAll('.deck-tab').forEach((tab, index) => {
+        if (!tab.__deck_bound) {
+          tab.__deck_bound = true;
+          tab.addEventListener('click', () => {
+            w.currentDeck = index;
+            d.querySelectorAll('.deck-tab').forEach((t, i) => t.classList.toggle('active', i === index));
+            refreshDeckUI();
+            updateMainDeckIndicator(); // 🎯 덱 탭 전환 시 대표덱 표시 업데이트
+          });
+        }
+      });
+    }
+    
+    // 🎯 새로 추가: 게임 파일의 가챠 버튼 활성화
+    function enableGachaInGame() {
+      try {
+        // 게임 파일에서 비활성화된 가챠 버튼들을 다시 활성화
+        const gachaButtons = d.querySelectorAll('button[id*="draw"], button[id*="card"], button[id*="gacha"]');
+        gachaButtons.forEach(btn => {
+          if (/카드.*뽑기|draw|가챠/i.test(btn.textContent || '')) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.title = '';
+            log(`✅ Enabled gacha button: ${btn.textContent}`);
+          }
+        });
+        
+        // 특정 ID로 찾기
+        const drawBtn = d.getElementById('drawCardBtn');
+        if (drawBtn) {
+          drawBtn.disabled = false;
+          drawBtn.style.opacity = '1';
+          drawBtn.title = '';
+          log('✅ Enabled main draw button');
+        }
+        
+      } catch (error) {
+        console.error('Enable gacha in game failed:', error);
+      }
+    }
+    
+    
+    
+    // 🎯 단일 슬롯 이벤트 바인딩
+    
+    
+    // 초기 설정
+    let activeScreen = d.querySelector('.screen.active');
+    if (!activeScreen) {
+      activeScreen = d.getElementById('mainScreen') || d.querySelector('.screen');
+      if (activeScreen) activeScreen.classList.add('active');
+    }
+    
+    
+    
+    // 🎯 게임 파일의 가챠 버튼 활성화
+    setTimeout(enableGachaInGame, 500);
+    
+    // 🎯 초기 대표덱 표시 (덱 화면 진입 시)
+    setTimeout(updateMainDeckIndicator, 1000);
+    
+    // 🎯 즉시 함수 주입 (HTML 파싱 전에 실행)
+    function injectMissingGameFunctions() {
+      try {
+        // [제거] setSpeed 오버라이드 제거 - 게임의 기본 setSpeed 사용
+
+        // filterLogs 함수 제대로 구현 (log-line 클래스 기준)
+        w.filterLogs = function(filterType) {
+          try {
+           // 전역 필터 변수 설정 추가!
+        w.GLOBAL_LOG_FILTER = filterType;
+            // 모든 필터 탭에서 active 클래스 제거
+            d.querySelectorAll('.log-filter-tab').forEach(tab => tab.classList.remove('active'));
+            
+            // 클릭된 탭에 active 클래스 추가
+            const filterNames = { 'all': '전체', 'damage': '피해', 'heal': '치유', 'buff': '버프', 'status': '상태', 'turn': '턴' };
+            const clickedTab = [...d.querySelectorAll('.log-filter-tab')]
+              .find(tab => tab.textContent.includes(filterNames[filterType] || filterType));
+            if (clickedTab) clickedTab.classList.add('active');
+            
+            // log-line 클래스 기준으로 필터링
+            const logLines = d.querySelectorAll('.log-line, .log-entry');
+            logLines.forEach(line => {
+              const text = (line.textContent || '').toLowerCase();
+              let shouldShow = filterType === 'all';
+              
+              // 클래스 기준 필터링
+              if (!shouldShow) {
+                if (filterType === 'damage' && (line.classList.contains('damage') || text.includes('피해') || text.includes('공격'))) shouldShow = true;
+                if (filterType === 'heal' && (line.classList.contains('heal') || text.includes('치유') || text.includes('회복'))) shouldShow = true;
+                if (filterType === 'buff' && (line.classList.contains('buff') || text.includes('버프') || text.includes('↑'))) shouldShow = true;
+                if (filterType === 'status' && (line.classList.contains('status') || text.includes('상태') || text.includes('기절'))) shouldShow = true;
+                if (filterType === 'turn' && (line.classList.contains('turn') || text.includes('턴') || text.includes('—'))) shouldShow = true;
+              }
+              
+              line.style.display = shouldShow ? '' : 'none';
+              line.classList.toggle('hidden', !shouldShow);
+            });
+            
+            log(`Log filter set to: ${filterType}`);
+          } catch (error) {
+            console.error('filterLogs error:', error);
+          }
+        };
+
+        log('✅ Core game functions injected immediately');
+        
+      } catch (error) {
+        console.error('Immediate function injection failed:', error);
+      }
+    }
+
+    // 🎯 즉시 함수 주입 실행
+    injectMissingGameFunctions();
+
+    // B-2: 백워드 호환성을 위한 no-op 함수들
+    window.filterAndDisplayCards ||= function(){ /* no-op - 게임파일이 자체 렌더 */ };
+    window.refreshDeckUI = function() {
+  // no-op - 게임 파일이 모든 UI 렌더링 담당
+  try {
+    const iframe = document.getElementById('frame');
+    const w = iframe?.contentWindow;
+    if (w && typeof w.refreshDeckSlots === 'function') {
+      w.refreshDeckSlots(); // 게임 파일의 실제 렌더링 함수 호출
+    }
+  } catch(e) {
+    console.warn('[Launcher refreshDeckUI]', e);
+  }
+};
+
+    // B-3: 가챠 연출 shim 추가 (showCardReveal → showDrawReveal 브릿징)
+    window.showCardReveal ||= function(card, rarity){
+      try{
+        const f = document.getElementById('frame'); 
+        const w = f && f.contentWindow;
+        if (w && typeof w.showDrawReveal === 'function') {
+          return w.showDrawReveal(card, rarity);   // ✅ 게임파일의 실제 연출 호출
+        }
+        // 폴백: 메시지로 위임
+        w && w.postMessage({ type:'REVEAL_CARD', payload:{ card, rarity } }, '*');
+      }catch(e){
+        console.warn('[Launcher] showCardReveal fallback', e);
+        alert(`${card?.name||'카드'} (${rarity}) 획득`); // 최후 폴백
+      }
+    };
+
+    // B-4: 동기화 신호 수신 로그 (디버깅용)
+    window.addEventListener('message', e=>{
+      if(e?.data?.type === 'DECK_READY')  console.log('[LAUNCHER] DECK_READY received');
+      if(e?.data?.type === 'CARDS_READY') console.log('[LAUNCHER] CARDS_READY received');
+    });
+
+    // 🎯 함수들을 전역으로 노출
+    w.loadDeckFromServer = loadDeckFromServer;
+    w.saveDeckToServer = saveDeckToServer;
+    w.refreshDeckUI = refreshDeckUI;
+    w.loadCards = loadCards;
+    w.removeFromDeck = removeFromDeck;
+    w.loadMainDeckFromServer = loadMainDeckFromServer;
+    w.startBattleFlow = startBattleFlow; // 전투 시작 함수도 노출
+    
+    // 🎯 게임에서 참조하는 함수들 제공
+    w.backToMain = () => w.showScreen('mainScreen');
+    w.showMain = () => w.showScreen('mainScreen');
+    w.displayHome = () => w.showScreen('mainScreen');
+    
+    log('✅ optimized launcher ready (5v5 battle mode FINAL)');
+  });
+
+  log('load ' + f.src);
+
+  // 툴바
+  document.getElementById('btn-main').onclick = () => {
+    try { 
+      f.contentWindow.showScreen && f.contentWindow.showScreen('mainScreen'); 
+    } catch(e) {
+      console.error('Main button error:', e);
+    }
+  };
+  
+  document.getElementById('btn-clear-session').onclick = () => {
+    try {
+      Object.keys(localStorage).forEach(k => { 
+        if (k.includes('sb-') && k.includes('auth-token')) localStorage.removeItem(k); 
+      });
+      alert('세션 삭제됨');
+    } catch(e) {
+      console.error('Clear session error:', e);
+    }
+  };
+}
+)();
+  </script>
+
+  <!-- ===== Auth Gate ===== -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    #authGate {
+      position: fixed; inset: 0; background: rgba(10,12,20,.92); color:#fff; z-index: 100000;
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+      font-family: system-ui, Segoe UI, Roboto, Malgun Gothic, sans-serif;
+    }
+    #authGate.hidden {
+      display: none !important;
+    }
+    #authBox {
+      width: 360px; background: #141826; border: 1px solid #2d3553; border-radius: 12px; padding: 18px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.45);
+    }
+    #authBox h2 { margin: 0 0 12px; font-size: 18px; }
+    #authBox input {
+      width: 100%; padding: 10px 12px; margin: 6px 0 10px;
+      background:#0e1120; border:1px solid #2a3352; border-radius:8px; color:#fff;
+    }
+    #authBox button {
+      width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #4c5bd1; background:#5e59d6; color:#fff; cursor:pointer;
+    }
+    #authBox .row { display:flex; gap:10px; }
+    #authErr { color:#ff9494; font-size:12px; min-height:16px; margin:6px 0 0; }
+  </style>
+
+  <div id="authGate">
+    <div id="authBox">
+      <h2>로그인 / 회원가입</h2>
+      <input id="agEmail" type="email" placeholder="이메일" autocomplete="email" />
+      <input id="agPw" type="password" placeholder="비밀번호(6자 이상)" autocomplete="current-password" />
+      <div class="row">
+        <button id="agLogin">로그인</button>
+        <button id="agSignup" style="background:#2f334a;border-color:#424a88">회원가입</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="agLogout" style="background:#30354d;border-color:#4b517a">로그아웃</button>
+        <button id="agClear"  style="background:#30354d;border-color:#4b517a">토큰삭제</button>
+      </div>
+      <div id="authErr"></div>
+    </div>
+  </div>
+
+  <script>
+  // waitForIframeReady 함수 정의
+  async function waitForIframeReady(maxWaitMs = 8000) {
+    const f = document.getElementById('frame');
+    if (!f) return false;
+    const start = Date.now();
+    return new Promise((resolve) => {
+      function check() {
+        try {
+          const w = f.contentWindow;
+          const d = w && w.document;
+          if (w && d && (d.readyState === 'interactive' || d.readyState === 'complete')) {
+            return resolve(true);
+          }
+        } catch(_) {}
+        if (Date.now() - start > maxWaitMs) return resolve(false);
+        setTimeout(check, 100);
+      }
+      f.addEventListener('load', () => setTimeout(check, 0), { once: true });
+      check();
+    });
+  }
+  
+  (function(){
+    const SUPABASE_URL = 'https://ezuvoqehzojiqmzatzbf.supabase.co';
+    const SUPABASE_ANON= 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6dXZvcWVoem9qaXFtemF0emJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDM4ODQsImV4cCI6MjA3MDU3OTg4NH0.4B33BI-WOgoeQHvQ4XBTNwwCCfvQiuVMWRpnOOOHrjw';
+    const sb = (window.__sb_singleton ||= supabase.createClient(SUPABASE_URL, SUPABASE_ANON));
+
+    const gate   = document.getElementById('authGate');
+    const email  = document.getElementById('agEmail');
+    const pw     = document.getElementById('agPw');
+    const btnLo  = document.getElementById('agLogin');
+    const btnSu  = document.getElementById('agSignup');
+    const btnLg  = document.getElementById('agLogout');
+    const btnCl  = document.getElementById('agClear');
+    const errBox = document.getElementById('authErr');
+
+    const showGate = () => { gate.style.display = 'flex'; gate.classList.remove('hidden'); };
+    const hideGate = () => { gate.style.display = 'none'; gate.classList.add('hidden'); };
+    const setErr   = (m='') => errBox.textContent = m;
+
+    function goMain() {
+      try { 
+        document.getElementById('frame').contentWindow.showScreen('mainScreen'); 
+      } catch(e) {
+        console.error('Go main error:', e);
+      }
+    }
+
+    // 단일 refreshHeaderProfile 함수 정의
+    async function refreshHeaderProfile() {
+      try {
+        const sb = (typeof getSB==='function') ? getSB() : (window.__sb_singleton||null);
+        if (!sb) return;
+
+        const { data:{ session } } = await sb.auth.getSession();
+        const uid = session?.user?.id; 
+        if (!uid) return;
+        
+        const { data: prof } = await sb
+          .from('user_profiles')
+          .select('display_name, pvp_score')
+          .eq('user_id', uid)
+          .maybeSingle();
+          
+        if (!prof) return;
+
+        // 이름/점수 계산 (한 번만)
+        const name  = prof.display_name || 'Player';
+        const score = (typeof prof.pvp_score === 'number') ? prof.pvp_score : 1000;
+
+        // --- HUD 중복 방지 ---
+        const prev = window.__HUD_LAST || {};
+        if (prev.name === name && prev.score === score) return;
+        window.__HUD_LAST = { name, score };
+
+        // HUD / DOM 갱신
+        const iframe  = document.getElementById('frame');
+        const gameDoc = iframe?.contentWindow?.document;
+        if (gameDoc) {
+          const playerNameEl  = gameDoc.getElementById('playerName');
+          if (playerNameEl)  playerNameEl.textContent  = name;
+          const playerScoreEl = gameDoc.getElementById('playerScore');
+          if (playerScoreEl) playerScoreEl.textContent = String(score);
+        }
+      } catch (e) {
+        console.warn('[refreshHeaderProfile]', e);
+      }
+    }
+
+    // 단일 syncSession 함수 정의
+    async function syncSession() {
+      try {
+        const { data:{ session } } = await sb.auth.getSession();
+        if (session) { 
+          hideGate(); 
+          goMain(); 
+          
+          // iframe 준비 대기
+          await waitForIframeReady();
+        } else { 
+          showGate(); 
+        }
+      } catch(e) {
+        console.error('syncSession error:', e);
+        showGate();
+      }
+    }
+
+    // 회원가입
+    btnSu.onclick = async () => {
+      setErr('');
+      try{
+        const em = (email.value||'').trim();
+        const pv = (pw.value||'');
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) { setErr('이메일 형식 오류'); return; }
+        if (pv.length < 6) { setErr('비밀번호는 6자 이상'); return; }
+
+        const { error } = await sb.auth.signUp({ email: em, password: pv });
+        if (error) { setErr(error.message); return; }
+
+        await sb.auth.signOut();
+        alert('회원가입 완료! 로그인 해주세요.');
+        showGate();
+      } catch(e) { 
+        setErr('회원가입 오류'); 
+      }
+    };
+
+    // 로그인
+    btnLo.onclick = async () => {
+      setErr('');
+      try{
+        const em = (email.value||'').trim();
+        const pv = (pw.value||'');
+        const pre = await sb.auth.getSession();
+        if(pre.data?.session?.user){ hideGate(); return; }
+        const { error } = await sb.auth.signInWithPassword({ email: em, password: pv });
+        if (error) { setErr(error.message || '로그인 오류'); return; }
+        await syncSession();
+      } catch(e) { 
+        setErr('로그인 오류'); 
+      }
+    };
+
+    // 로그아웃
+    btnLg.onclick = async () => {
+      await sb.auth.signOut();
+      showGate();
+    };
+
+    // 토큰 삭제
+    btnCl.onclick = () => {
+      try{
+        Object.keys(localStorage).forEach(k => { if (k.includes('supabase') && k.endsWith('auth-token')) localStorage.removeItem(k); });
+        showGate(); alert('로컬 토큰 삭제됨.');
+      } catch(e) { console.warn(e); }
+    };
+
+    // 초기 상태 - 로그인창 강제 표시
+    showGate();
+    syncSession();
+    sb.auth.onAuthStateChange(() => { syncSession(); });
+  })();
+  </script>
+
+  <script>
+  // === Auth boot: ensure gate follows real session state ===
+  (function bootAuthGate(retry){
+    retry = retry || 0;
+    try{
+      var sb = (typeof getSB === 'function') ? getSB() : (window.__sb_singleton || null);
+      if(!sb){
+        if(retry < 20) return setTimeout(function(){ bootAuthGate(retry+1); }, 250);
+        return;
+      }
+      sb.auth.getSession().then(function(res){
+        var session = res && res.data && res.data.session;
+        var gate = document.getElementById('authGate');
+        if (session && session.user) {
+          if (gate) gate.style.display = 'none';
+          (async()=>{ 
+            try{ 
+              await waitForIframeReady(); 
+              if (typeof refreshHeaderProfile === 'function') refreshHeaderProfile(); 
+            } catch(_){} 
+          })();
+        } else {
+          if (gate) gate.style.display = 'flex';
+        }
+      });
+      sb.auth.onAuthStateChange(function(event){
+        var gate = document.getElementById('authGate');
+        if (event === 'SIGNED_IN') {
+          if (gate) gate.style.display = 'none';
+          (async()=>{ 
+            try{ 
+              await waitForIframeReady(); 
+              if (typeof refreshHeaderProfile === 'function') refreshHeaderProfile(); 
+            } catch(_){} 
+          })();
+        } else if (event === 'SIGNED_OUT') {
+          if (gate) gate.style.display = 'flex';
+        }
+      });
+    }catch(e){
+      console.warn('[bootAuthGate]', e);
+      if(retry < 20) setTimeout(function(){ bootAuthGate(retry+1); }, 500);
+    }
+  })(0);
+  </script>
+
+  <!-- AUTH STABILIZER PATCH -->
+  <script>
+  (function(){
+    if (window.__AUTH_STABILIZER_APPLIED__) return;
+    window.__AUTH_STABILIZER_APPLIED__ = true;
+
+    const sb = (function(){
+      if (window.__sb_singleton) return window.__sb_singleton;
+      if (window.sb && window.sb.auth && window.sb.from) return window.sb;
+      if (window.supabase && typeof window.supabase.createClient !== 'undefined') {
+        try {
+          const url = window.SUPABASE_URL || window.SB_URL || window.SUPABASE_PROJECT_URL;
+          const anon= window.SUPABASE_ANON || window.SB_ANON || window.SUPABASE_ANON_KEY;
+          if (url && anon) {
+            const c = window.supabase.createClient(url, anon);
+            window.__sb_singleton = c;
+            return c;
+          }
+        } catch(_) {}
+      }
+      return null;
+    })();
+
+    if (!sb || !sb.auth) {
+      console.warn("[AuthStabilizer] No Supabase client found; patch is inert.");
+      return;
+    }
+
+    const byId = (id) => document.getElementById(id);
+    const gate   = byId('authGate');
+    const email  = byId('agEmail');
+    const pw     = byId('agPw');
+    const btnLo  = byId('agLogin');
+    const btnSu  = byId('agSignup');
+    const btnLg  = byId('agLogout');
+    const btnCl  = byId('agClear');
+    const errBox = byId('authErr');
+    const iframe = byId('frame');
+
+    const setErr = (m='') => { if (errBox) errBox.textContent = m; };
+    const showGate = () => { if (gate) gate.style.display = 'flex'; };
+    const hideGate = () => { if (gate) gate.style.display = 'none'; };
+
+    function waitForIframeReady(timeoutMs = 1200) {
+      return new Promise((resolve) => {
+        const start = Date.now();
+        (function tick(){
+          if (!iframe || !iframe.contentWindow) return resolve();
+          try {
+            const doc = iframe.contentWindow.document;
+            if (!doc || doc.readyState !== 'complete') {
+              if (Date.now() - start > timeoutMs) return resolve();
+              return setTimeout(tick, 60);
+            }
+          } catch(_) {}
+          resolve();
+        })();
+      });
+    }
+
+    async function applySessionUI() {
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (session && session.user) {
+          hideGate();
+          try {
+            await waitForIframeReady();
+            if (typeof window.refreshHeaderProfile === 'function') window.refreshHeaderProfile();
+            iframe && iframe.contentWindow && iframe.contentWindow.postMessage({ type: 'LOGIN_COMPLETE' }, '*');
+          } catch(_) {}
+        } else {
+          showGate();
+        }
+      } catch(_) {
+        showGate();
+      }
+    }
+
+    if (!window.__AUTH_STABILIZER_BOUND__) {
+      window.__AUTH_STABILIZER_BOUND__ = true;
+      sb.auth.onAuthStateChange((_event, _session) => {
+        applySessionUI();
+      });
+    }
+
+    applySessionUI();
+
+    const onceAsync = (fn) => async (...args) => {
+      if (fn.__busy) return;
+      try {
+        fn.__busy = true;
+        return await fn(...args);
+      } finally {
+        fn.__busy = false;
+      }
+    };
+
+    async function purgeTokens() {
+      try { await sb.auth.signOut(); } catch(_) {}
+      try {
+        Object.keys(localStorage).forEach(k => {
+          const lk = (k||"") + "";
+          if ((lk.includes('supabase') || lk.includes('sb-') || lk.includes('auth')) && lk.includes('token')) {
+            localStorage.removeItem(k);
+          }
+        });
+      } catch(_) {}
+    }
+
+    async function doLogin() {
+      setErr('');
+      if (!btnLo) return;
+      btnLo.disabled = true;
+      const oldText = btnLo.textContent;
+      btnLo.textContent = '로그인 중...';
+
+      try {
+        const em = (email && (email.value||'').trim()) || '';
+        const pv = (pw && (pw.value||'')) || '';
+
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) { setErr('이메일 형식 오류'); return; }
+        if (pv.length < 6) { setErr('비밀번호는 6자 이상'); return; }
+
+        await purgeTokens();
+
+        const { error } = await sb.auth.signInWithPassword({ email: em, password: pv });
+        if (error) { setErr(error.message || '로그인 오류'); return; }
+
+        await applySessionUI();
+      } catch(e) {
+        setErr('로그인 오류');
+      } finally {
+        btnLo.textContent = oldText;
+        btnLo.disabled = false;
+      }
+    }
+
+    async function doLogout() {
+      await purgeTokens();
+      await applySessionUI();
+    }
+    async function doClear() {
+      await purgeTokens();
+      showGate();
+      try { alert('로컬 토큰 삭제됨.'); } catch(_) {}
+    }
+
+    if (btnLo)  btnLo.onclick = onceAsync(doLogin);
+    if (btnLg)  btnLg.onclick = onceAsync(doLogout);
+    if (btnCl)  btnCl.onclick = onceAsync(doClear);
+
+    [email, pw].forEach(el => {
+      if (!el) return;
+      el.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter' && btnLo && !btnLo.disabled) {
+          btnLo.click();
+        }
+      });
+    });
+
+    console.log("[AuthStabilizer] Patch applied.");
+  })();
+  </script>
+<script>
+(function(){
+  const btn = document.getElementById('btn-logout');
+  if (!btn) return;
+
+  // 버튼 표시/숨김
+  function setLogoutVisible(v){
+    if (!btn) return;
+    btn.classList.toggle('hidden', !v);
+  }
+
+  // 초깃값: 숨김
+  setLogoutVisible(false);
+
+  // Supabase 세션 상태에 따라 버튼 표시
+  const sb = window.__sb_singleton;
+  async function syncVisibility(){
+    try{
+      const { data:{ session } } = await sb.auth.getSession();
+      setLogoutVisible(!!session?.user);
+    }catch(_){}
+  }
+  syncVisibility();
+  sb.auth.onAuthStateChange((_e, session)=>{
+    setLogoutVisible(!!session?.user);
+  });
+
+  // 클릭 시: 로그아웃 + Auth Gate 보여주기 + 게임 화면 메인으로 복귀(있으면)
+  btn.addEventListener('click', async ()=>{
+    try{
+      await sb.auth.signOut();
+      // (보수적) 로컬 토큰 일부 정리 — 기존 코드와 충돌 없음
+      try {
+        Object.keys(localStorage).forEach(k=>{
+          const s = String(k);
+          if (s.includes('supabase') || (s.includes('sb-') && s.includes('auth'))) {
+            localStorage.removeItem(k);
+          }
+        });
+      } catch(_){}
+
+      // Auth Gate 다시 표시 (런처에 이미 존재)
+      const gate = document.getElementById('authGate');
+      if (gate){
+        gate.style.display = 'flex';
+        gate.classList.remove('hidden');
+      }
+
+      // 게임 iframe이 켜져 있으면 메인 화면으로 돌려놓기(선택)
+      const f = document.getElementById('frame');
+      try{
+        f?.contentWindow?.showScreen?.('mainScreen');  // 게임 파일 내 네비게이션 함수:contentReference[oaicite:2]{index=2}
+      }catch(_){}
+      
+      setLogoutVisible(false);
+      alert('로그아웃되었습니다.');
+    }catch(e){
+      console.warn('logout error', e);
+      alert('로그아웃에 실패했습니다.');
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  const sb  = window.__sb_singleton;
+  const btn = document.getElementById('btn-logout');
+
+  function show(v){ btn.style.display = v ? '' : 'none'; }
+
+  // 로그인 상태에만 보이기
+  (async ()=>{ try{
+    const { data:{ session } } = await sb.auth.getSession();
+    show(!!session?.user);
+  }catch(_){} })();
+
+  sb.auth.onAuthStateChange((_e, session)=> show(!!session?.user));
+
+  // 클릭 → 로그아웃 + Auth Gate 보기 + 게임 메인으로
+  btn.addEventListener('click', async ()=>{
+    try{
+      await sb.auth.signOut();
+      // (보수적) 로컬 토큰 일부 제거
+      try {
+        Object.keys(localStorage).forEach(k=>{
+          const s=String(k);
+          if (s.includes('supabase') || (s.includes('sb-') && s.includes('auth'))) localStorage.removeItem(k);
+        });
+      }catch(_){}
+      document.getElementById('authGate')?.classList?.remove('hidden');
+      const gate = document.getElementById('authGate'); if (gate) gate.style.display='flex';
+      document.getElementById('frame')?.contentWindow?.showScreen?.('mainScreen');
+      show(false);
+      alert('로그아웃되었습니다.');
+    }catch(e){
+      console.warn('logout error', e); alert('로그아웃에 실패했습니다.');
+    }
+  });
+})();
+</script>
+
+
+</body>
+</html>

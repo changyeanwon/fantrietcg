@@ -1,0 +1,5965 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta content="no-store, no-cache, must-revalidate" http-equiv="Cache-Control"/>
+<meta content="no-cache" http-equiv="Pragma"/>
+<meta content="0" http-equiv="Expires"/>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FANTRIE TCG - 자동 배틀 게임</title>
+<style>
+/* Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+    overflow-x:hidden;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Screen Management */
+.screen {
+    display: none;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    min-height: 600px;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.screen.active {
+    display: block;
+    opacity: 1;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Login Screen */
+.login-screen {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.game-title {
+    font-size: 3em;
+    font-weight: bold;
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 30px;
+}
+
+.login-form {
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    min-width: 300px;
+}
+
+.input-group {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+/* Buttons */
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin: 5px;
+}
+
+.btn-primary {
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#mainScreen.screen {
+    background: linear-gradient(180deg, #0a0d20, #0f1226 40%, #0a0d20);
+    color: #e9ecff;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.action-panel {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+.cooldown-timer {
+    background: transparent;
+    color: #ff4444; /* 빨간 글씨 */
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    text-align: center;
+    margin: 10px 0;
+    font-weight: bold;
+}
+
+.cooldown-timer.ready {
+    background: transparent;
+    color: #51cf66; /* 초록 글씨 */
+    border: none;
+}
+
+/* Cards Screen specific styling */
+#cardsScreen.screen {
+    background: linear-gradient(180deg, #0a0d20, #0f1226 40%, #0a0d20);
+    color: #e9ecff;
+}
+
+/* Card Styles */
+.card {
+    background: white;
+    border-radius: 10px;
+    padding: 15px;
+    margin: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    border: 3px solid;
+    transition: all 0.3s;
+    cursor: pointer;
+    position: relative;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+    max-height: calc(100vh - 250px);
+    overflow-y: auto;
+    padding: 5px;
+}
+
+/* Rarity Colors */
+:root {
+    --rarity-super-common: #E5E7EB;
+    --rarity-common: #9CA3AF;
+    --rarity-rare: #4ECDC4;
+    --rarity-epic: #FF69B4;
+    --rarity-ultra-rare: #87CEEB;
+    --rarity-gold: #FFD700;
+    
+    --role-dealer: #EF4444;
+    --role-tank: #64748B;
+    --role-bruiser: #F97316;
+    --role-support: #22C55E;
+    --role-controller: #A78BFA;
+    
+    --affinity-wild: #10B981;
+    --affinity-cute: #F472B6;
+    --affinity-cool: #60A5FA;
+    --affinity-sexy: #F59E0B;
+}
+
+.card.common { border-color: var(--rarity-common); }
+.card.rare { border-color: var(--rarity-rare); }
+.card.ultra-rare { border-color: var(--rarity-ultra-rare); }
+.card.epic { border-color: var(--rarity-epic); }
+.card.gold { border-color: var(--rarity-gold); }
+.card.super-common { 
+    border: none;
+    position: relative;
+    background: #2a2d3a;
+}
+
+.card.super-common::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffeaa7, #fd79a8);
+    border-radius: 13px;
+    z-index: -10;
+}
+
+/* Badge Styles */
+.rarity-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 700;
+    border: 1px solid rgba(0,0,0,.12);
+}
+
+.rarity-super-common { background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffeaa7, #fd79a8); color: #FFFFFF; border-color: #D1D5DB; }
+.rarity-common { background: var(--rarity-common); color: #FFFFFF; border-color: #6B7280; }
+.rarity-rare { background: var(--rarity-rare); color: #FFFFFF; border-color: #2FB3A4; }
+.rarity-epic { background: var(--rarity-epic); color: #FFFFFF; border-color: #E7549D; }
+.rarity-ultra-rare { background: var(--rarity-ultra-rare); color: #0F172A; border-color: #5BB6D7; }
+.rarity-gold { background: var(--rarity-gold); color: #111827; border-color: #E6C200; }
+
+/* Deck Builder */
+#deckScreen.screen {
+    background: linear-gradient(180deg, #0a0d20, #0f1226 40%, #0a0d20);
+    padding: 0;
+    box-shadow: none;
+}
+
+.deck-builder-screen {
+    background: linear-gradient(180deg, #0a0d20, #0f1226 40%, #0a0d20);
+    min-height: 100vh;
+    color: #e9ecff;
+    padding: 0;
+    margin: 0;
+    border-radius: 15px;
+}
+
+.deck-builder-header {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.back-to-main {
+    padding: 10px 20px;
+    background: linear-gradient(180deg,#6f7bff,#5763ff);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.deck-builder-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: grid;
+    grid-template-columns: 450px 1fr;
+    gap: 16px;
+}
+
+.deck-selector {
+    background: #151939;
+    border-radius: 16px;
+    padding: 12px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    grid-column: 1/-1;
+}
+
+.deck-tab {
+    flex: 1;
+    padding: 12px;
+    background: #1a1f47;
+    border: 2px solid #2b3163;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s;
+    position: relative;
+}
+
+.deck-tab.active {
+    background: linear-gradient(180deg, #6f7bff, #5763ff);
+    border-color: #6f7bff;
+    color: #fff;
+    font-weight: 700;
+}
+
+.deck-tab.main-deck::before {
+    content: '⭐';
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    font-size: 20px;
+}
+
+.deck-slots {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.slot {
+    aspect-ratio: 2/3;
+    border: 2px dashed #32408f;
+    border-radius: 12px;
+    padding: 8px;
+    background: #0d1333;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.slot.filled {
+    border-style: solid;
+    background: linear-gradient(180deg, #0e1439, #0c1131);
+}
+
+/* Card Detail Panel */
+.card-detail {
+    background: #151939;
+    border-radius: 16px;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 16px;
+    height: 420px;
+}
+
+.card-media {
+    border-radius: 12px;
+    overflow: hidden;
+    background: #0b0e22;
+    border: 3px solid #23284f;
+    width: 100%;
+    aspect-ratio: 2/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4,1fr);
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.stat {
+    background: #111536;
+    border: 1px solid #22285a;
+    border-radius: 10px;
+    padding: 8px;
+    text-align: center;
+}
+
+/* 스킬 설명란 스타일 복구 */
+.skill {
+    background: #101437;
+    border: 1px dashed #2b3267;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+
+.skill .name {
+    font-weight: 700;
+    color: #e9ecff;
+    margin-bottom: 4px;
+}
+
+.skill .desc {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #9aa1c6;
+}
+
+/* 버튼 스타일 복구 */
+.btn-deck {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #2d3370;
+    background: #171c43;
+    color: #dfe3ff;
+    cursor: pointer;
+    transition: .15s transform ease;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.btn-deck.primary {
+    background: linear-gradient(180deg,#6f7bff,#5763ff);
+    border-color: #6f7bff;
+    color: #fff;
+    font-weight: 700;
+}
+
+.btn-deck.danger {
+    background: linear-gradient(180deg,#ff6b6b,#ff5252);
+    border-color: #ff6b6b;
+    color: #fff;
+    font-weight: 700;
+}
+
+.btn-deck:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.btn-deck:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+/* Owned Cards Panel */
+.owned {
+    background: #151939;
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 8px;
+}
+
+.owned-list {
+    overflow: auto;
+    padding: 6px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    max-height: calc(100vh - 300px);
+    border-radius: 8px;
+    background: rgba(0,0,0,0.2);
+}
+
+.card-mini {
+    background: #0e1231;
+    border: 2px solid #22285a;
+    border-radius: 12px;
+    padding: 8px;
+    cursor: pointer;
+    transition: .12s transform ease;
+    text-align: center;
+}
+
+.card-mini:hover {
+    transform: translateY(-2px);
+}
+
+/* 카드 미니 희귀도별 테두리 색상 */
+.card-mini.common { border: 2px solid var(--rarity-common) !important; }
+.card-mini.rare { border: 2px solid var(--rarity-rare) !important; }
+.card-mini.ultra-rare { border: 2px solid var(--rarity-ultra-rare) !important; }
+.card-mini.epic { border: 2px solid var(--rarity-epic) !important; }
+.card-mini.gold { border: 2px solid var(--rarity-gold) !important; }
+.card-mini.super-common { 
+    border: none !important;
+    position: relative;
+    background: #0e1231;
+}
+
+.card-mini.super-common::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffeaa7, #fd79a8);
+    border-radius: 14px;
+    z-index: -10;
+}
+
+.thumb {
+    width: 100%;
+    aspect-ratio: 2/3;
+    border-radius: 8px;
+    background: #0b0e22;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.card-thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Deck Panel */
+.deck-panel {
+    background: #151939;
+    border-radius: 16px;
+    padding: 12px 12px 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 8px;
+}
+
+/* Filters 스타일 복구 */
+.filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px;
+    background: #11163a;
+    border-radius: 12px;
+    border: 1px solid #272e66;
+}
+
+.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #cfd5ff;
+}
+
+input.input, select {
+    background: #0f1438;
+    color: #dbe0ff;
+    border: 1px solid #272e66;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+}
+
+/* Battle Arena - GPT 프로토타입 기반 */
+:root {
+    /* 전투판 높이: 더 크게 조정 */
+    --arena-h: clamp(600px, 70vw, 1000px);
+    /* 카드 슬롯 간격 */
+    --grid-gap: 18px;
+    /* 각 행 최대 높이 (전투판 높이에 비례) - 더 크게 */
+    --lane-max-h: clamp(250px, calc(var(--arena-h) * 0.40), 400px);
+    /* VS 영역 피하기 위한 상/하단 여백 - 절반으로 줄임 */
+    --safe-top: clamp(30px, calc(var(--arena-h) * 0.06), 60px);
+    --safe-bottom: clamp(30px, calc(var(--arena-h) * 0.06), 60px);
+    /* 슬롯 최소 가로폭 - 보유 카드와 동일 */
+    --slot-min-w: 130px;
+    /* 5칸의 최소 전체 폭 = 5*슬롯너비 + 4*간격 */
+    --team-min-w: calc(5 * var(--slot-min-w) + 4 * var(--grid-gap));
+    /* 슬롯 테두리 색상 */
+    --slot-border: rgba(0, 245, 255, 0.75);
+    --slot-glow: rgba(0, 245, 255, 0.35);
+}
+
+.battle-arena {
+    width: 100%;
+    height: var(--arena-h);
+    position: relative;
+    overflow: hidden;
+    border-radius: 20px;
+    background: url('https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/Asset/arena.png') center/cover no-repeat;
+    box-shadow: 0 0 28px rgba(0,0,0,.35);
+    margin-bottom: 20px;
+    /* 전투판 자체도 최소 가로폭 보장 */
+    min-width: var(--team-min-w);
+}
+
+.team-area {
+    position: absolute;
+    left: 50%; 
+    transform: translateX(-50%);
+    width: min(96vw, 980px);
+    /* 최소 전체 폭을 강제해서, 이 이하로는 더 줄지 않도록 */
+    min-width: var(--team-min-w);
+    
+    display: grid;
+    grid-template-columns: repeat(5, minmax(var(--slot-min-w), 1fr));
+    gap: var(--grid-gap);
+    justify-items: center;
+    z-index: 2;
+}
+
+.team-area.opponent {
+    top: var(--safe-top);
+}
+
+.team-area.player {
+    bottom: var(--safe-bottom);
+}
+
+/* 슬롯: 프레임만 제공 (카드 DOM 주입 예정) */
+.card-slot {
+    /* 보유 카드와 동일한 1:2.1 비율 */
+    width: min(100%, calc(var(--lane-max-h) * 1 / 2.1));
+    aspect-ratio: 1 / 2.1;
+    
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    
+    /* 항상 보이는 네온 테두리 + 글로우 */
+    border: 2px solid var(--slot-border);
+    border-radius: 12px;
+    box-shadow:
+        0 0 14px var(--slot-glow),
+        inset 0 0 8px rgba(255,255,255,0.05);
+    background: rgba(0,0,0,.05);
+    position: relative;
+}
+
+/* 카드가 들어있는 슬롯 */
+.card-slot.filled {
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+/* 현재 턴 카드 금빛 효과 */
+.card-slot.current-turn {
+    animation: goldGlow 1.5s ease-in-out infinite;
+    border-color: #ffd700;
+    box-shadow: 
+        0 0 20px #ffd700,
+        0 0 40px #ffd700,
+        inset 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+@keyframes goldGlow {
+    0%, 100% { 
+        box-shadow: 
+            0 0 20px #ffd700,
+            0 0 40px #ffd700,
+            inset 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+    50% { 
+        box-shadow: 
+            0 0 30px #ffd700,
+            0 0 60px #ffd700,
+            inset 0 0 20px rgba(255, 215, 0, 0.5);
+    }
+}
+
+/* 피해 입은 카드 흔들림 효과 */
+.card-slot.damage-shake {
+    animation: damageShake 0.3s ease-out;
+    position: relative;
+}
+
+.card-slot.damage-shake::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 0, 0, 0.4);
+    border-radius: 12px;
+    animation: damageFlash 0.3s ease-out;
+    pointer-events: none;
+    z-index: 1;
+}
+
+@keyframes damageShake {
+    0% { transform: translateX(0); }
+    20% { transform: translateX(7px); }
+    40% { transform: translateX(-7px); }
+    60% { transform: translateX(5px); }
+    80% { transform: translateX(-5px); }
+    100% { transform: translateX(0); }
+}
+
+@keyframes damageFlash {
+    0% { opacity: 0.6; }
+    50% { opacity: 0.3; }
+    100% { opacity: 0; }
+}
+
+/* ATB 스피드 게이지 */
+.atb-gauge {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: 
+        radial-gradient(circle at center, rgba(0,0,0,0.85) 58%, transparent 60%),
+        conic-gradient(
+            from 180deg,
+            #001133 0deg,
+            #001133 var(--progress, 0deg),
+            #00ffff var(--progress, 0deg),
+            #00ffff 90deg,  /* 9시까지만 (90도) */
+            #001133 90deg,
+            #001133 360deg
+        );
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    box-shadow: 
+        0 0 8px rgba(0, 255, 255, 0.2),
+        inset 0 0 4px rgba(0,0,0,0.5);
+    z-index: 10;
+    transition: --progress 0.05s linear;
+}
+
+/* 공격하는 카드 앞으로 나오기 효과 */
+.team-area.opponent .card-slot.attacking {
+    animation: attackForwardTop 0.3s ease-out;
+}
+.team-area.player .card-slot.attacking {
+    animation: attackForwardBottom 0.3s ease-out;
+}
+@keyframes attackForwardTop {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(20px); }
+    100% { transform: translateY(0); }
+}
+@keyframes attackForwardBottom {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-20px); }
+    100% { transform: translateY(0); }
+}
+
+/* 슬롯 내부 카드 - 덱설정 보유 카드와 동일한 구조 */
+.card-slot .unit-card {
+    width: 100%;
+    height: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    background: #0e1231;
+    border: 2px solid #22285a;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    text-align: center;
+}
+
+.battle-controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.speed-btn {
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.speed-btn.active {
+    background: #ff6b6b;
+}
+
+/* Battle Log - SF/Futuristic Design */
+.battle-log-container {
+    background: linear-gradient(135deg, #0a0d20 0%, #151939 100%);
+    border: 1px solid #2a3567;
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 
+        0 0 20px rgba(94, 109, 255, 0.15),
+        inset 0 0 20px rgba(0, 0, 0, 0.5);
+    position: relative;
+}
+
+.battle-log-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, 
+        transparent 0%, 
+        #6f7bff 20%, 
+        #6f7bff 80%, 
+        transparent 100%);
+    animation: scanline 3s linear infinite;
+}
+
+@keyframes scanline {
+    0% { opacity: 0.5; }
+    50% { opacity: 1; }
+    100% { opacity: 0.5; }
+}
+
+.log-filter-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 8px;
+    background: rgba(10, 13, 32, 0.6);
+    border-radius: 12px;
+    border: 1px solid #1e2451;
+    backdrop-filter: blur(10px);
+}
+
+.log-filter-tab {
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #1a1f47 0%, #0f1438 100%);
+    color: #7a82b8;
+    border: 1px solid #2a3567;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.log-filter-tab::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(111, 123, 255, 0.4), transparent);
+    transition: left 0.5s;
+}
+
+.log-filter-tab:hover::before {
+    left: 100%;
+}
+
+.log-filter-tab:hover {
+    color: #a5aeff;
+    border-color: #4a5091;
+    transform: translateY(-1px);
+}
+
+.log-filter-tab.active {
+    background: linear-gradient(135deg, #6f7bff 0%, #5763ff 100%);
+    color: #ffffff;
+    border-color: #6f7bff;
+    font-weight: bold;
+    box-shadow: 
+        0 4px 12px rgba(111, 123, 255, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.log-filter-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: #00f5ff;
+    box-shadow: 0 0 10px #00f5ff;
+    animation: pulse-neon 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-neon {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+}
+
+.battle-log {
+    background: linear-gradient(180deg, #0a0d20 0%, #0f1226 100%);
+    border: 1px solid #1e2451;
+    border-radius: 12px;
+    height: 250px;
+    overflow-y: auto;
+    padding: 12px;
+    font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    position: relative;
+}
+
+/* 스크롤바 스타일 */
+.battle-log::-webkit-scrollbar {
+    width: 8px;
+}
+
+.battle-log::-webkit-scrollbar-track {
+    background: rgba(10, 13, 32, 0.8);
+    border-radius: 4px;
+}
+
+.battle-log::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #6f7bff 0%, #4a5091 100%);
+    border-radius: 4px;
+    border: 1px solid #2a3567;
+}
+
+.battle-log::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #8a94ff 0%, #5763ff 100%);
+}
+
+/* 로그 라인 스타일 - 네온 효과 추가 */
+.log-line {
+    margin-bottom: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid;
+    transition: all 0.2s;
+    position: relative;
+    background: rgba(15, 18, 38, 0.6);
+    backdrop-filter: blur(5px);
+}
+
+.log-line:hover {
+    transform: translateX(4px);
+    background: rgba(20, 25, 50, 0.8);
+}
+
+/* 각 로그 타입별 네온 컬러 */
+.log-line.damage { 
+    background: linear-gradient(90deg, rgba(255, 68, 68, 0.1) 0%, rgba(255, 68, 68, 0.05) 100%);
+    border-left-color: #ff4444;
+    color: #ff8a8a;
+    box-shadow: inset 0 0 20px rgba(255, 68, 68, 0.1);
+}
+
+.log-line.heal { 
+    background: linear-gradient(90deg, rgba(0, 245, 160, 0.1) 0%, rgba(0, 245, 160, 0.05) 100%);
+    border-left-color: #00f5a0;
+    color: #00f5a0;
+    box-shadow: inset 0 0 20px rgba(0, 245, 160, 0.1);
+}
+
+.log-line.buff { 
+    background: linear-gradient(90deg, rgba(0, 245, 255, 0.1) 0%, rgba(0, 245, 255, 0.05) 100%);
+    border-left-color: #00f5ff;
+    color: #00f5ff;
+    box-shadow: inset 0 0 20px rgba(0, 245, 255, 0.1);
+}
+
+.log-line.debuff { 
+    background: linear-gradient(90deg, rgba(255, 170, 0, 0.1) 0%, rgba(255, 170, 0, 0.05) 100%);
+    border-left-color: #ffaa00;
+    color: #ffcc66;
+    box-shadow: inset 0 0 20px rgba(255, 170, 0, 0.1);
+}
+
+.log-line.status { 
+    background: linear-gradient(90deg, rgba(167, 139, 250, 0.1) 0%, rgba(167, 139, 250, 0.05) 100%);
+    border-left-color: #a78bfa;
+    color: #c4b5fd;
+    box-shadow: inset 0 0 20px rgba(167, 139, 250, 0.1);
+}
+
+.log-line.turn { 
+    background: linear-gradient(90deg, rgba(111, 123, 255, 0.2) 0%, rgba(87, 99, 255, 0.1) 100%);
+    border-left-color: #6f7bff;
+    color: #a5aeff;
+    font-weight: bold;
+    font-size: 13px;
+    margin: 12px 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 
+        inset 0 0 30px rgba(111, 123, 255, 0.2),
+        0 0 10px rgba(111, 123, 255, 0.1);
+}
+
+.log-line.turn::before {
+    content: '▶';
+    margin-right: 8px;
+    color: #00f5ff;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.log-line.system { 
+    background: linear-gradient(90deg, rgba(3, 169, 244, 0.1) 0%, rgba(3, 169, 244, 0.05) 100%);
+    border-left-color: #03a9f4;
+    color: #4fc3f7;
+    font-style: italic;
+}
+
+.log-line.dot { 
+    background: linear-gradient(90deg, rgba(240, 98, 146, 0.1) 0%, rgba(240, 98, 146, 0.05) 100%);
+    border-left-color: #f06292;
+    color: #f8bbd0;
+}
+
+.log-line.tm { 
+    background: linear-gradient(90deg, rgba(186, 104, 200, 0.1) 0%, rgba(186, 104, 200, 0.05) 100%);
+    border-left-color: #ba68c8;
+    color: #e1bee7;
+}
+
+.log-line.cooldown { 
+    background: linear-gradient(90deg, rgba(121, 134, 203, 0.1) 0%, rgba(121, 134, 203, 0.05) 100%);
+    border-left-color: #7986cb;
+    color: #9fa8da;
+}
+
+/* 네온 글로우 애니메이션 */
+.log-line.damage { animation: glow-red 2s ease-in-out infinite; }
+.log-line.heal { animation: glow-green 2s ease-in-out infinite; }
+
+@keyframes glow-red {
+    0%, 100% { text-shadow: 0 0 5px rgba(255, 68, 68, 0.5); }
+    50% { text-shadow: 0 0 10px rgba(255, 68, 68, 0.8); }
+}
+
+@keyframes glow-green {
+    0%, 100% { text-shadow: 0 0 5px rgba(0, 245, 160, 0.5); }
+    50% { text-shadow: 0 0 10px rgba(0, 245, 160, 0.8); }
+}
+
+/* Card Reveal Animation */
+.card-reveal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    perspective: 1000px; /* 3D 효과를 위한 perspective 추가 */
+}
+
+.card-reveal.active {
+    display: flex;
+}
+
+.reveal-card {
+    position: relative;
+    transform-style: preserve-3d;
+    animation: cardReveal 3s ease-in-out;
+}
+
+.reveal-card-content {
+    position: relative;
+    z-index: 1;
+    background: white;
+    padding: 20px;
+    border-radius: 15px;
+    width: 350px;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.reveal-card.common .reveal-card-content { border: 3px solid var(--rarity-common); }
+.reveal-card.rare .reveal-card-content { border: 3px solid var(--rarity-rare); }
+.reveal-card.ultra-rare .reveal-card-content { border: 3px solid var(--rarity-ultra-rare); }
+.reveal-card.epic .reveal-card-content { border: 3px solid var(--rarity-epic); }
+.reveal-card.gold .reveal-card-content { border: 3px solid var(--rarity-gold); }
+.reveal-card.super-common .reveal-card-content { 
+    border: 3px solid;
+    border-image: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffeaa7, #fd79a8) 1;
+}
+
+@keyframes cardReveal {
+    0% { 
+        transform: scale(0) rotateY(360deg); 
+        opacity: 0; 
+    }
+    50% { 
+        transform: scale(0.85) rotateY(180deg); 
+        opacity: 1; 
+    }
+    100% { 
+        transform: scale(0.7) rotateY(0deg); 
+        opacity: 1; 
+    }
+}
+
+@keyframes glow {
+    from { opacity: 0.5; }
+    to { opacity: 1; }
+}
+
+.rarity-glow {
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    border-radius: 15px;
+    animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+    from { opacity: 0.5; }
+    to { opacity: 1; }
+}
+
+/* 작업지시서 추가: VS 라벨 스타일 */
+#vsLabel {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    color: white;
+    padding: 15px 40px;
+    border-radius: 12px;
+    font-size: 22px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 15px;
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
+    min-height: 55px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#vsLabel.victory {
+    color: #ff4444;
+    font-size: 28px;
+}
+
+#vsLabel.defeat {
+    color: #4444ff;
+    font-size: 28px;
+}
+
+/* Scrollbar 스타일 */
+.owned-list {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.35) transparent;
+}
+.owned-list::-webkit-scrollbar { width: 8px; height: 8px; }
+.owned-list::-webkit-scrollbar-track { background: transparent; }
+.owned-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.35); border-radius: 8px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+    .card-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+    .deck-slots {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* ==== FANTRIE hero (980×980) ==== */
+#hero980{ position:relative; width:980px; height:980px; margin:0 auto; user-select:none; }
+#hero980 .bg{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+
+/* 히어로 버튼 클릭 영역 50% 축소 */
+#heroBtnDeck::before,
+#heroBtnCollection::before,
+#heroBtnName::before,
+#heroBtnRanking::before {
+    content: '';
+    position: absolute;
+    top: 25%;
+    left: 25%;
+    width: 50%;
+    height: 50%;
+    z-index: 999;
+    pointer-events: auto;
+}
+
+#heroBtnDeck,
+#heroBtnCollection,
+#heroBtnName,
+#heroBtnRanking {
+    pointer-events: none;
+}
+
+/* 카드 슬롯(1:1.6 비율 고정) */
+.card-slot-hero{
+    position:absolute; width:var(--w); aspect-ratio:1/1.6;
+    left:var(--x); top:var(--y);
+    transform:rotate(var(--rot)); transform-origin:center; border-radius:12px; overflow:hidden;
+}
+.card-slot-hero img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+/* 버튼(표시 크기 고정) */
+.hero-btn{ position:absolute; display:block; z-index:4; }
+.hero-btn img{ width:100%; height:100%; object-fit:contain; display:block; }
+
+/* 살짝 팝인 */
+@keyframes popIn{0%{transform:scale(.82);opacity:0}60%{transform:scale(1.1);opacity:1}100%{transform:scale(1)}}
+.hero-btn img{ animation:popIn .45s ease-out both; }
+.hero-btn:hover img{ filter:drop-shadow(0 0 12px rgba(120,200,255,.6)); transform:translateY(-1px); transition:.12s; }
+
+/* 원하는 경우: 기존 대시보드 패널 숨김 */
+#mainScreen .main-content{ display:none; }
+
+/* 닉네임 변경 모달 */
+.nickname-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 99999;
+    backdrop-filter: blur(5px);
+}
+
+.nickname-modal-content {
+    background: linear-gradient(180deg, #0a0d20, #0f1226);
+    border: 2px solid #667eea;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    color: #e9ecff;
+}
+
+.nickname-modal input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #e9ecff;
+    font-size: 16px;
+    margin: 20px 0;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.nickname-modal button {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 0 5px;
+    transition: all 0.3s;
+}
+
+.nickname-modal .btn-confirm {
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    color: white;
+}
+
+.nickname-modal .btn-cancel {
+    background: rgba(255, 255, 255, 0.2);
+    color: #e9ecff;
+}
+
+/* 랭킹 모달 */
+.ranking-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 99999;
+    backdrop-filter: blur(5px);
+}
+
+.ranking-modal-content {
+    background: linear-gradient(180deg, #0a0d20, #0f1226);
+    border: 2px solid #667eea;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    text-align: center;
+    color: #e9ecff;
+    overflow: hidden;
+}
+
+.ranking-modal h3 {
+    color: #667eea;
+    margin-bottom: 20px;
+    font-size: 24px;
+}
+
+.ranking-list {
+    max-height: 400px;
+    overflow-y: auto;
+    margin: 20px 0;
+    text-align: left;
+}
+
+.ranking-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ranking-item.top3 {
+    background: linear-gradient(45deg, rgba(255, 215, 0, 0.1), rgba(255, 215, 0, 0.05));
+    border-color: rgba(255, 215, 0, 0.5);
+}
+
+.ranking-item .player-info {
+    flex: 1;
+    font-size: 16px;
+    font-weight: bold;
+    color: #e9ecff;
+}
+
+.ranking-item .score {
+    font-size: 16px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.ranking-modal button {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    color: white;
+    transition: all 0.3s;
+    margin-top: 20px;
+}
+
+.ranking-modal button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+/* 스크롤바 스타일 */
+.ranking-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.ranking-list::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.2);
+    border-radius: 4px;
+}
+
+.ranking-list::-webkit-scrollbar-thumb {
+    background: rgba(102, 126, 234, 0.5);
+    border-radius: 4px;
+}
+
+/* 첫 로그인 보상 카드 스타일 */
+.first-login-card {
+    width: 175px;
+    height: 262.5px;
+    border-radius: 12px;
+    background: #2a2d3a;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    animation: cardAppear 0.5s ease-out forwards;
+}
+
+.first-login-card:nth-child(1) { animation-delay: 0.1s; }
+.first-login-card:nth-child(2) { animation-delay: 0.2s; }
+.first-login-card:nth-child(3) { animation-delay: 0.3s; }
+.first-login-card:nth-child(4) { animation-delay: 0.4s; }
+.first-login-card:nth-child(5) { animation-delay: 0.5s; }
+.first-login-card:nth-child(6) { animation-delay: 0.6s; }
+.first-login-card:nth-child(7) { animation-delay: 0.7s; }
+.first-login-card:nth-child(8) { animation-delay: 0.8s; }
+.first-login-card:nth-child(9) { animation-delay: 0.9s; }
+.first-login-card:nth-child(10) { animation-delay: 1.0s; }
+
+@keyframes cardAppear {
+    from {
+        transform: scale(0) rotateY(180deg);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1) rotateY(0);
+        opacity: 1;
+    }
+}
+
+/* 희귀도별 테두리 효과 - 첨부한 HTML 스타일 그대로 */
+.first-login-card.common {
+    border: 3px solid #9CA3AF;
+    box-shadow: 
+        0 0 10px #9CA3AF,
+        0 0 20px rgba(156, 163, 175, 0.5),
+        inset 0 0 10px rgba(156, 163, 175, 0.2);
+}
+
+.first-login-card.rare {
+    border: 3px solid #4ECDC4;
+    box-shadow: 
+        0 0 15px #4ECDC4,
+        0 0 30px rgba(78, 205, 196, 0.5),
+        inset 0 0 15px rgba(78, 205, 196, 0.2);
+}
+
+.first-login-card.ultra-rare {
+    border: 3px solid #87CEEB;
+    box-shadow: 
+        0 0 20px #87CEEB,
+        0 0 40px rgba(135, 206, 235, 0.6),
+        inset 0 0 20px rgba(135, 206, 235, 0.3);
+}
+
+.first-login-card.epic {
+    border: 3px solid #FF69B4;
+    box-shadow: 
+        0 0 25px #FF69B4,
+        0 0 50px rgba(255, 105, 180, 0.7),
+        inset 0 0 25px rgba(255, 105, 180, 0.3);
+}
+
+.first-login-card.gold {
+    border: 3px solid #FFD700;
+    box-shadow: 
+        0 0 30px #FFD700,
+        0 0 60px rgba(255, 215, 0, 0.8),
+        inset 0 0 30px rgba(255, 215, 0, 0.4);
+}
+
+.first-login-card.super-common {
+    border: 3px solid transparent;
+    position: relative;
+}
+
+.first-login-card.super-common::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    background: linear-gradient(45deg, 
+        #ff6b6b, #4ecdc4, #45b7d1, 
+        #96ceb4, #ffeaa7, #fd79a8,
+        #ff6b6b);
+    border-radius: 12px;
+    z-index: -1;
+    animation: rainbowRotate 3s linear infinite;
+}
+
+.first-login-card.super-common::after {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    right: -10px;
+    bottom: -10px;
+    background: linear-gradient(45deg, 
+        #ff6b6b, #4ecdc4, #45b7d1, 
+        #96ceb4, #ffeaa7, #fd79a8);
+    border-radius: 15px;
+    z-index: -2;
+    opacity: 0.5;
+    filter: blur(15px);
+    animation: rainbowRotate 3s linear infinite reverse;
+}
+
+@keyframes rainbowRotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* 첫 로그인 보상 모달 버튼 스타일 */
+#firstLoginModal button, #rewardCompleteModal button {
+    padding: 16px 40px;
+    border: none;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 10px 0;
+    transition: all 0.3s;
+    width: 100%;
+    min-height: 50px;
+    background: linear-gradient(180deg, #6f7bff, #5763ff);
+    color: white;
+    box-shadow: 0 4px 12px rgba(111, 123, 255, 0.3);
+}
+
+#firstLoginModal button:hover, #rewardCompleteModal button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(111, 123, 255, 0.4);
+}
+</style>
+
+
+
+<style>
+/* 덱 빌더 필수 CSS */
+.deck-builder-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: grid;
+    grid-template-columns: 450px 1fr;  /* 왼쪽 450px, 오른쪽 나머지 */
+    gap: 16px;
+}
+
+/* 카드 상세 패널 - 이미지와 정보를 나란히 */
+.card-detail {
+    background: #151939;
+    border-radius: 16px;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 200px 1fr;  /* 이미지 200px, 정보 나머지 */
+    gap: 16px;
+    height: 420px;
+}
+
+/* 카드 이미지 영역 */
+.card-media {
+    border-radius: 12px;
+    overflow: hidden;
+    background: #0b0e22;
+    border: 3px solid #23284f;
+    width: 100%;
+    aspect-ratio: 2/3;  /* 카드 비율 유지 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 보유 카드 리스트 - 3열 그리드 */
+.owned-list {
+    overflow: auto;
+    padding: 6px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);  /* 3열로 표시 */
+    gap: 10px;
+    max-height: 400px;
+}
+
+/* 카드 미니 스타일 */
+.card-mini {
+    background: #0e1231;
+    border: 2px solid #22285a;
+    border-radius: 12px;
+    padding: 8px;
+    cursor: pointer;
+    transition: .12s transform ease;
+    text-align: center;
+}
+
+.card-mini:hover {
+    transform: translateY(-2px);
+}
+
+/* 덱 패널 */
+.deck-panel {
+    background: #151939;
+    border-radius: 16px;
+    padding: 12px 12px 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 8px;
+}
+
+/* 덱 슬롯 그리드 - 5x2 */
+.deck-slots {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 10px;
+}
+
+/* 슬롯 스타일 */
+.slot {
+    border: 2px dashed #32408f;
+    border-radius: 12px;
+    min-height: 140px;
+    padding: 8px;
+    background: #0d1333;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    aspect-ratio: 2/3;
+}
+
+.slot.filled {
+    border-style: solid;
+    background: linear-gradient(180deg,#0e1439,#0c1131);
+}
+
+/* 덱 슬롯 희귀도별 테두리 색상 */
+.slot.common { border: 2px solid var(--rarity-common) !important; }
+.slot.rare { border: 2px solid var(--rarity-rare) !important; }
+.slot.ultra-rare { border: 2px solid var(--rarity-ultra-rare) !important; }
+.slot.epic { border: 2px solid var(--rarity-epic) !important; }
+.slot.gold { border: 2px solid var(--rarity-gold) !important; }
+.slot.super-common { border: 2px solid var(--rarity-super-common) !important; }
+.slot.super-common.filled {
+    background: linear-gradient(180deg,#0e1439,#0c1131);
+}
+
+/* 소유 카드 섹션 */
+.owned {
+    background: #151939;
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 8px;
+}
+
+/* 필터 영역 */
+.filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px;
+    background: #11163a;
+    border-radius: 12px;
+    border: 1px solid #272e66;
+}
+
+/* 스탯 그리드 */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4,1fr);
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.stat {
+    background: #111536;
+    border: 1px solid #22285a;
+    border-radius: 10px;
+    padding: 8px;
+    text-align: center;
+}
+
+/* 상세 메타 정보 */
+.detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* 썸네일 */
+.thumb {
+    width: 100%;
+    aspect-ratio: 2/3;
+    border-radius: 8px;
+    background: #0b0e22;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.card-thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* 덱설정 버튼스타일 */
+.btn-deck {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #2d3370;
+    background: #171c43;
+    color: #dfe3ff;
+    cursor: pointer;
+    transition: .15s transform ease;
+}
+
+.btn-deck.primary {
+    background: linear-gradient(180deg,#6f7bff,#5763ff);
+    border-color: #6f7bff;
+    color: #fff;
+    font-weight: 700;
+}
+
+.btn-deck.danger {
+    background: linear-gradient(180deg,#ff6b6b,#ff5252);
+    border-color: #ff6b6b;
+    color: #fff;
+    font-weight: 700;
+}
+
+/* 덱설정 필터스타일 */
+input.input, select {
+    background: #0f1438;
+    color: #dbe0ff;
+    border: 1px solid #272e66;
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #cfd5ff;
+}
+
+/* 덱설정 스크롤바 */
+.owned-list {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.35) transparent;
+}
+.owned-list::-webkit-scrollbar { width: 8px; height: 8px; }
+.owned-list::-webkit-scrollbar-track { background: transparent; }
+.owned-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.35); border-radius: 8px; }
+
+</style>
+
+
+</head>
+<body>
+
+<div class="container">
+    <!-- Login Screen -->
+    <div class="screen" id="loginScreen">
+        <div class="login-screen">
+            <h1 class="game-title">FANTRIE TCG</h1>
+            <p style="margin-bottom: 30px; font-size: 18px;">21명의 캐릭터와 함께하는 자동 배틀 게임</p>
+            <div class="login-form">
+                <div class="input-group">
+                    <label for="username">아이디</label>
+                    <input id="username" placeholder="아이디를 입력하세요" type="text"/>
+                </div>
+                <div class="input-group">
+                    <label for="password">비밀번호</label>
+                    <input id="password" placeholder="비밀번호를 입력하세요" type="password"/>
+                </div>
+                <button class="btn btn-primary" id="loginBtn">로그인</button>
+                <button class="btn btn-primary" id="registerBtn">회원가입</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Screen -->
+    <div class="screen active" id="mainScreen">
+        
+        <div id="hero980">
+          <!-- 배경 -->
+          <img class="bg" src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/main.png" alt="Main BG">
+
+          <!-- 플레이어 정보 텍스트박스 -->
+          <div style="position: absolute; left: 50%; top: 32%; transform: translateX(-50%); background: transparent; z-index: 5; display: flex; gap: 80px; align-items: center;">
+            <div id="playerName" style="color: white; font-size: 20px; font-weight: bold; text-align: center;">플레이어</div>
+            <div style="color: #667eea; font-size: 20px; font-weight: bold; text-align: center;">점수: <span id="playerScore">1000</span></div>
+          </div>
+
+          <!-- 카드 3장: 가운데 카드(z-index 최상단) -->
+          <div id="slotL" class="card-slot-hero" style="--x:211px; --y:389px; --w:221px; --rot:-14deg; z-index:1;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/Asset/Myojung_SC_Front_01.png" alt="Left">
+          </div>
+          <div id="slotC" class="card-slot-hero" style="--x:410px; --y:352px; --w:240px; --rot:0deg; z-index:3;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/Asset/Inkyung_R_Front_01.png" alt="Center">
+          </div>
+          <div id="slotR" class="card-slot-hero" style="--x:625px; --y:385px; --w:221px; --rot:14deg; z-index:2;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/Asset/Yudiii_SC_Front_01.png" alt="Right">
+          </div>
+
+          <!-- 버튼 6개: 표시 크기/좌표 고정 (원본 크기와 무관) -->
+          <a id="heroBtnBattle" class="hero-btn" href="#" style="left:348px; top:744px; width:170px; height:170px;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/battle_btn.png" alt="Battle">
+          </a>
+          <a id="heroBtnGacha" class="hero-btn" href="#" style="left:545px; top:744px; width:170px; height:170px;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/gacha_btn.png" alt="Gacha">
+          </a>
+          <a id="heroBtnDeck" class="hero-btn" href="#" style="left:90px; top:769px; width:337px; height:136px;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/deck_btn.png" alt="Deck">
+          </a>
+          <a id="heroBtnCollection" class="hero-btn" href="#" style="left:58px; top:837px; width:402px; height:139px;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/collection_btn.png" alt="Collection">
+          </a>
+          <a id="heroBtnRanking" class="hero-btn" href="#" style="left:676px; top:773px; width:264px; height:121px;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/ranking_btn.png" alt="Ranking">
+          </a>
+          <a id="heroBtnName" class="hero-btn" href="#" style="left:690px; top:837px; width:242px; height:128px;">
+            <img src="https://ezuvoqehzojiqmzatzbf.supabase.co/storage/v1/object/public/main_and_buttons/nickname_btn.png" alt="Name">
+          </a>
+<!-- 쿨타임 표시 영역 -->
+<!-- 전투하기 쿨타임 (중앙 하단) -->
+<div style="position: absolute; left: 44.3%; bottom: 86px; transform: translateX(-50%); z-index: 5;">
+  <div class="cooldown-timer" id="heroBattleCooldown" style="font-size: 14px;">전투 가능!</div>
+</div>
+
+<!-- 카드뽑기 쿨타임 (오른쪽 하단) -->
+<div style="position: absolute; left: 64.5%; bottom: 86px; transform: translateX(-50%); z-index: 5;">
+  <div class="cooldown-timer" id="heroCardCooldown" style="font-size: 14px;">카드뽑기 가능!</div>
+</div>
+        </div>
+        
+        <div class="main-content">
+            <div class="action-panel">
+                <h3>게임 메뉴</h3>
+                <div class="cooldown-timer" id="battleCooldown">전투 가능!</div>
+                <button class="btn btn-primary" id="battleBtn" style="width: 100%; margin-bottom: 20px;">전투하기</button>
+                <div class="cooldown-timer" id="cardCooldown">카드뽑기 가능!</div>
+                <button class="btn btn-primary" id="drawCardBtn" style="width: 100%; margin-bottom: 20px;">카드 뽑기</button>
+                <button class="btn btn-primary" onclick="showScreen('deckScreen')" style="width: 100%; margin-bottom: 10px;">덱 설정</button>
+                <button class="btn btn-primary" onclick="showScreen('cardsScreen')" style="width: 100%;">내 카드 보기</button>
+            </div>
+            
+            <div class="action-panel">
+                <h3>최근 전투 기록</h3>
+                <div id="recentBattles">
+                    <p>아직 전투 기록이 없습니다.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+   <div class="screen" id="deckScreen">
+    <div class="deck-builder-screen">
+        <div class="deck-builder-header">
+            <h2>덱 설정</h2>
+            <button class="back-to-main" onclick="backToMain()">메인으로</button>
+        </div>
+        
+        <div class="deck-builder-content">
+            <!-- 덱 선택 탭 -->
+            <div class="deck-selector">
+                <div class="deck-tab active" onclick="selectDeckTab(0)">
+                    <div class="deck-name">덱 1</div>
+                    <div class="deck-count" id="deck-count-0">0/10</div>
+                </div>
+                <div class="deck-tab" onclick="selectDeckTab(1)">
+                    <div class="deck-name">덱 2</div>
+                    <div class="deck-count" id="deck-count-1">0/10</div>
+                </div>
+                <div class="deck-tab" onclick="selectDeckTab(2)">
+                    <div class="deck-name">덱 3</div>
+                    <div class="deck-count" id="deck-count-2">0/10</div>
+                </div>
+                <div class="deck-tab" onclick="selectDeckTab(3)">
+                    <div class="deck-name">덱 4</div>
+                    <div class="deck-count" id="deck-count-3">0/10</div>
+                </div>
+            </div>
+            
+            <!-- 왼쪽: 카드 상세 + 보유 카드 -->
+            <section style="display: grid; grid-template-rows: 420px minmax(0,1fr); gap: 16px;">
+                <div class="card-detail" id="detailPanel">
+                    <div class="card-media" id="cardMedia">
+                        <img alt="" id="cardMediaImg"/>
+                    </div>
+                    <div class="detail-meta">
+                        <h2 id="detailName">선택된 카드 없음</h2>
+                        <div id="detailChips"></div>
+                        <div class="stat-grid">
+                            <div class="stat"><div class="k">HP</div><div class="v" id="statHP">-</div></div>
+                            <div class="stat"><div class="k">ATK</div><div class="v" id="statATK">-</div></div>
+                            <div class="stat"><div class="k">DEF</div><div class="v" id="statDEF">-</div></div>
+                            <div class="stat"><div class="k">SPD</div><div class="v" id="statSPD">-</div></div>
+                        </div>
+                        <div class="skill"><div class="name">액티브</div><div class="desc" id="skillActive" style="display:block;">-</div></div>
+                        <div class="skill"><div class="name">패시브</div><div class="desc" id="skillPassive" style="display:block;">-</div></div>
+                        <div class="actions">
+                            <button class="btn-deck primary" disabled="" id="btnAdd">덱에 추가</button>
+                            <button class="btn-deck danger" disabled="" id="btnRemove">덱에서 제거</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="owned">
+                    <div><strong>보유 카드에서 선택</strong></div>
+                    <div class="filters">
+                        <label class="checkbox">검색:
+                            <input class="input" id="search" placeholder="캐릭터 (A~U)" style="width:100px"/>
+                        </label>
+                        <label class="checkbox">정렬:
+                            <select id="sort">
+                                <option value="character">캐릭터순</option>
+                                <option value="rarity">희귀도</option>
+                                <option value="atk">공격력</option>
+                                <option value="hp">체력</option>
+                            </select>
+                        </label>
+                        <label class="checkbox">직업:
+                            <select id="role">
+                                <option value="">모든 직업</option>
+                                <option>딜러</option>
+                                <option>탱커</option>
+                                <option>브루저</option>
+                                <option>서포터</option>
+                                <option>컨트롤러</option>
+                            </select>
+                        </label>
+                        <label class="checkbox">
+                            <input id="onlyAvailable" type="checkbox"/> 현재 덱에 없는 카드만
+                        </label>
+                    </div>
+                    <div class="owned-list" id="ownedList"></div>
+                    <div class="pagination" id="pagination"></div>
+                </div>
+            </section>
+            
+            <!-- 오른쪽: 덱 -->
+            <section class="deck-panel">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <strong id="deckTitle">덱 1 (0/10)</strong>
+                    <button class="btn-deck" id="btnClear">비우기</button>
+                    <button class="btn-deck primary" id="btnSaveDeck" onclick="saveDeckChanges()" disabled>저장</button>
+                    <button class="btn-deck primary" onclick="setMainDeck()" style="margin-left: auto;">대표 덱 설정</button>
+                </div>
+                <div class="deck-slots" id="deckSlots"></div>
+                <div style="color: #9aa1c6; font-size: 12px;">
+                    팁: 보유 카드 클릭 → 상단 패널에서 "덱에 추가". 덱 카드 클릭 → 상단 패널에서 "덱에서 제거".
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+    <!-- Battle Screen -->
+    <div class="screen" id="battleScreen" style="background: linear-gradient(180deg, #0a0d20, #0f1226 40%, #0a0d20); color: #e9ecff;"">
+        <div id="vsLabel">전투 준비 완료! 시작하기 버튼을 누르세요.</div>
+        
+        <div class="battle-controls">
+            <button class="btn btn-primary" id="startBattleBtn" disabled style="opacity: 0.5;">시작하기</button>
+            <div style="margin-left: 20px;">
+                <button class="speed-btn active" onclick="setSpeed(this, 1)">1x</button>
+                <button class="speed-btn" onclick="setSpeed(this, 2)">2x</button>
+                <button class="speed-btn" onclick="setSpeed(this, 3)">3x</button>
+                <button class="speed-btn" onclick="setSpeed(this, 4)">4x</button>
+            </div>
+            <button class="btn btn-primary" onclick="showScreen('mainScreen')" style="margin-left: 20px;">메인으로</button>
+        </div>
+        
+        <!-- Battle Arena - GPT 프로토타입 구조 적용 -->
+        <div class="battle-arena" id="battleArena">
+            <!-- 상대팀 5칸 슬롯 -->
+            <div class="team-area opponent" id="opponentTeam">
+                <div class="card-slot" data-slot="0"></div>
+                <div class="card-slot" data-slot="1"></div>
+                <div class="card-slot" data-slot="2"></div>
+                <div class="card-slot" data-slot="3"></div>
+                <div class="card-slot" data-slot="4"></div>
+            </div>
+
+            <!-- 플레이어팀 5칸 슬롯 -->
+            <div class="team-area player" id="playerTeam">
+                <div class="card-slot" data-slot="0"></div>
+                <div class="card-slot" data-slot="1"></div>
+                <div class="card-slot" data-slot="2"></div>
+                <div class="card-slot" data-slot="3"></div>
+                <div class="card-slot" data-slot="4"></div>
+            </div>
+        </div>
+        
+        <!-- Battle Log -->
+        <div class="battle-log-container">
+            <div class="log-filter-tabs">
+                <button class="log-filter-tab active" onclick="filterLogs('all')">전체</button>
+                <button class="log-filter-tab" onclick="filterLogs('damage')">피해</button>
+                <button class="log-filter-tab" onclick="filterLogs('heal')">치유</button>
+                <button class="log-filter-tab" onclick="filterLogs('buff')">버프</button>
+                <button class="log-filter-tab" onclick="filterLogs('status')">상태</button>
+                <button class="log-filter-tab" onclick="filterLogs('turn')">턴</button>
+            </div>
+            <div class="battle-log" id="battleLog"></div>
+        </div>
+    </div>
+    
+    <!-- Cards Screen -->
+    <div class="screen" id="cardsScreen">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>내 카드 컬렉션</h2>
+            <button class="btn btn-primary" onclick="showScreen('mainScreen')">메인으로</button>
+        </div>
+        
+        <!-- 필터 영역 추가 -->
+        <div id="cardFilters" style="background: #151939; padding: 15px; border-radius: 12px; margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <!-- 검색창 -->
+            <input type="text" id="cardSearchInput" placeholder="카드명 검색" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #272e66; background: #0f1438; color: #dbe0ff; width: 200px;">
+            
+            <!-- 정렬 필터 -->
+            <select id="cardSortSelect" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #272e66; background: #0f1438; color: #dbe0ff;">
+                <option value="name">캐릭터순</option>
+                <option value="rarity">희귀도순</option>
+                <option value="hp">체력순</option>
+                <option value="atk">공격력순</option>
+                <option value="def">방어력순</option>
+                <option value="spd">스피드순</option>
+            </select>
+            
+            <!-- 직업 필터 -->
+            <select id="cardJobSelect" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #272e66; background: #0f1438; color: #dbe0ff;">
+                <option value="">모든 직업</option>
+                <option value="딜러">딜러</option>
+                <option value="탱커">탱커</option>
+                <option value="브루저">브루저</option>
+                <option value="서포터">서포터</option>
+                <option value="컨트롤러">컨트롤러</option>
+            </select>
+            
+            <!-- 속성 필터 (3개만) -->
+            <select id="cardAffinitySelect" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #272e66; background: #0f1438; color: #dbe0ff;">
+                <option value="">모든 속성</option>
+                <option value="sexy">Sexy</option>
+                <option value="wild">Wild</option>
+                <option value="cute">Cute</option>
+            </select>
+            
+            <!-- 초기화 버튼 -->
+            <button id="cardFilterReset" style="padding: 8px 16px; border-radius: 8px; background: #272e66; color: #dbe0ff; border: none; cursor: pointer;">필터 초기화</button>
+        </div>
+        
+        <!-- 카드 그리드 wrapper 추가 -->
+        <div id="cardCollectionWrapper" style="background: #151939; padding: 15px; border-radius: 12px; border: 1px solid #272e66;">
+            <div class="card-grid" id="cardCollection"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Card Reveal Effect -->
+<div class="card-reveal" id="cardReveal">
+    <div id="revealedCard"></div>
+</div>
+
+<script>
+// 전역 로그 필터 변수 - 최상단에 선언
+var GLOBAL_LOG_FILTER = 'all';
+</script>
+
+<script>
+// 전역 플백 이미지 정의 (GPT 수정사항 1)
+window.FALLBACK_IMG = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjI4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZpbGw9IiM5OTkiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gSW1hZ2U8L3RleHQ+PC9zdmc+';
+
+// 간단한 쿨타임 시스템 (히어로 버튼용)
+window.simpleCooldown = {
+    intervals: {},
+    
+    start(type, remainingMs) {
+        if (type === 'battle') {
+            window.battleCooldownActive = true;
+            const heroBtn = document.getElementById('heroBtnBattle');
+            if (heroBtn) {
+                heroBtn.style.opacity = '0.5';
+                heroBtn.style.pointerEvents = 'none';
+            }
+            
+            setTimeout(() => {
+                window.battleCooldownActive = false;
+                if (heroBtn) {
+                    heroBtn.style.opacity = '1';
+                    heroBtn.style.pointerEvents = 'auto';
+                }
+                console.log('전투 쿨타임 해제');
+            }, remainingMs);
+        }
+    }
+};
+// 서버 에러 메시지를 감지해서 쿨타임 시작
+window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'BATTLE_ERROR' && event.data.error === 'BATTLE_COOLDOWN') {
+        window.simpleCooldown.start('battle', event.data.remaining_ms || 0);
+    }
+});
+
+// 서버 시간 기준 쿨타임 계산
+function calculateRemainingTime(lastActionTime, cooldownMinutes) {
+    if (!lastActionTime) return 0;
+    
+    // 서버 시간 오프셋 적용
+    const serverNow = Date.now() - (window.__serverOffsetMs || 0);
+    const lastAction = new Date(lastActionTime).getTime();
+    const cooldownMs = cooldownMinutes * 60 * 1000;
+    const elapsed = serverNow - lastAction;
+    
+    return Math.max(0, cooldownMs - elapsed);
+}
+
+// 시간을 "분 초" 형식으로 변환
+function formatTime(ms) {
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    if (minutes > 0) {
+        return `${minutes}분 ${seconds}초`;
+    } else {
+        return `${seconds}초`;
+    }
+}
+
+// 쿨타임 카운트다운 업데이트
+function updateCooldownDisplay(elementId, remainingMs, readyText, buttonId) {
+    const element = document.getElementById(elementId);
+    const button = document.getElementById(buttonId);
+    
+    if (!element || !button) return;
+    
+    if (remainingMs <= 0) {
+        // 쿨타임 종료
+        element.textContent = readyText;
+        element.className = 'cooldown-timer ready';
+        element.style.display = 'block';  // 이 줄 추가
+        button.disabled = false;
+        button.style.opacity = '1';
+    } else {
+        // 쿨타임 진행 중
+        element.textContent = formatTime(remainingMs);
+        element.className = 'cooldown-timer';
+        element.style.display = 'block';  // 이 줄 추가
+        button.disabled = true;
+        button.style.opacity = '0.5';
+    }
+}
+
+// 쿨타임 관리 객체
+const cooldownManager = {
+    intervals: {},
+    
+    // 쿨타임 시작
+    startCooldown(type, lastActionTime, cooldownMinutes) {
+        const config = {
+    battle: { 
+        elementId: 'heroBattleCooldown', 
+        buttonId: 'battleBtn', 
+        readyText: '전투 가능!' 
+    },
+    draw: { 
+        elementId: 'heroCardCooldown', 
+        buttonId: 'drawCardBtn', 
+        readyText: '카드뽑기 가능!' 
+    }
+};
+        
+        const cfg = config[type];
+        if (!cfg) return;
+        
+        // 기존 인터벌 정리
+        if (this.intervals[type]) {
+            clearInterval(this.intervals[type]);
+        }
+        
+        // 카운트다운 업데이트
+        const updateCountdown = () => {
+            const remaining = calculateRemainingTime(lastActionTime, cooldownMinutes);
+            updateCooldownDisplay(cfg.elementId, remaining, cfg.readyText, cfg.buttonId);
+            
+            if (remaining <= 0) {
+                clearInterval(this.intervals[type]);
+                delete this.intervals[type];
+            }
+        };
+        
+        // 즉시 업데이트
+        updateCountdown();
+// 히어로 버튼도 함께 비활성화/활성화
+        if (type === 'battle') {
+            const heroBtn = document.getElementById('heroBtnBattle');
+            const remaining = calculateRemainingTime(lastActionTime, cooldownMinutes);
+            if (heroBtn) {
+                if (remaining > 0) {
+                    heroBtn.style.opacity = '0.5';
+                    heroBtn.style.pointerEvents = 'none';
+                } else {
+                    heroBtn.style.opacity = '1';
+                    heroBtn.style.pointerEvents = 'auto';
+                }
+            }
+        }
+        
+        if (type === 'draw') {
+            const heroBtn = document.getElementById('heroBtnGacha');
+            const remaining = calculateRemainingTime(lastActionTime, cooldownMinutes);
+            if (heroBtn) {
+                if (remaining > 0) {
+                    heroBtn.style.opacity = '0.5';
+                    heroBtn.style.pointerEvents = 'none';
+                } else {
+                    heroBtn.style.opacity = '1';
+                    heroBtn.style.pointerEvents = 'auto';
+                }
+            }
+        }
+        
+        // 1초마다 업데이트
+        this.intervals[type] = setInterval(updateCountdown, 1000);
+    },
+    
+    // 모든 쿨타임 초기화
+    async initAllCooldowns() {
+        const cooldownInfo = await getCooldownInfo();
+        if (!cooldownInfo) return;
+        
+        // 전투 쿨타임 (5분) - 실제 전투 완료 시간 사용
+        if (cooldownInfo.last_match_at) {
+            this.startCooldown('battle', cooldownInfo.last_match_at, 5);
+        }
+        
+        // 가챠 쿨타임 (60분)
+        if (cooldownInfo.last_draw_time) {
+            this.startCooldown('draw', cooldownInfo.last_draw_time, 60);
+        }
+    }
+};
+
+
+// 신버전 showDrawReveal - 화려한 이펙트와 모든 정보 표시
+if (typeof window.showDrawReveal !== 'function') {
+window.showDrawReveal = function(card, rarityKey) {
+    console.log('[카드 뽑기 데이터]', card);
+    console.log('[희귀도]', rarityKey);
+    window.lastCardData = card;
+    
+    // 오버레이 보장
+    let wrap = document.getElementById('cardReveal');
+    let host = document.getElementById('revealedCard');
+    if (!wrap || !host) {
+      wrap = document.createElement('div');
+      wrap.id = 'cardReveal';
+      wrap.className = 'card-reveal';
+      wrap.appendChild(document.createElement('div')).id = 'revealedCard';
+      host = wrap.querySelector('#revealedCard');
+      document.body.appendChild(wrap);
+    }
+    
+    // 기존 헬퍼 함수들
+    const normRarity = window.normRarity || (r => String(r || 'common').toLowerCase().replace(/_/g, '-'));
+    const displayRarity = window.displayRarity || (r => {
+      const n = normRarity(r);
+      const map = {
+        'common': 'Common', 'rare': 'Rare', 'ultra-rare': 'Ultra Rare',
+        'epic': 'Epic', 'gold': 'Gold', 'super-common': 'Super Common'
+      };
+      return map[n] || n.charAt(0).toUpperCase() + n.slice(1);
+    });
+    
+    // 카드 데이터 추출
+    const FALLBACK = window.FALLBACK_IMG;
+    const portraits = card?.portrait_url || {};
+    const img = (typeof portraits === 'string') ? portraits : (portraits[normRarity(rarityKey)] || portraits.common || FALLBACK);
+    const name = card?.name || 'UNKNOWN';
+    const rarity = normRarity(rarityKey);
+    
+    // 이미지 프리로드
+    const preloadImage = new Image();
+    
+    preloadImage.onload = () => {
+      console.log('[이미지 프리로드] 성공:', img);
+      showModalWithImage(img);
+    };
+    
+    preloadImage.onerror = () => {
+      console.log('[이미지 프리로드] 실패, 폴백 사용');
+      showModalWithImage(FALLBACK);
+    };
+    
+    preloadImage.src = img;
+    
+    // 모달 표시 함수
+    function showModalWithImage(finalImgSrc) {
+      // 기본 정보 추출
+      const stats = card?.base_stats ? applyRarity(card.base_stats, rarityKey) : {hp:0,atk:0,def:0,spd:0};
+      const baseStats = card?.base_stats || {};
+      const mainJob = card?.main_job || '';
+      const subJob = card?.sub_job || '';
+      const affinity = baseStats?.affinity || '';
+      const skills = card?.skills || {};
+      const activeSkill = skills?.active || {};
+      const passiveSkill = skills?.passive || {};
+      
+      host.innerHTML = `
+        <div class="reveal-card ${rarity}" style="transform: scale(0.7);">
+          <div class="rarity-glow" style="background: rgba(156, 163, 175, 0.8); border-radius: 15px; opacity: 1; animation: glow 2s ease-in-out infinite alternate;"></div>
+          <div class="reveal-card-content" style="background: #2a2d3a; color: #ffffff;">
+            <img src="${finalImgSrc}" alt="${name}" style="width:100%;max-width:300px;height:auto;border-radius:12px;margin-bottom:15px;" 
+                 onerror="this.src='${FALLBACK}';this.onerror=null;">
+            
+            <div style="display:flex;align-items:center;margin:10px 0;">
+              <h2 style="margin:0;font-size:24px;flex:1;color:#ffffff;">${name}</h2>
+              <span class="rarity-badge rarity-${rarity}" style="margin-left:8px;display:inline-block;padding:4px 12px;border-radius:6px;font-size:14px;font-weight:bold;">
+                ${displayRarity(rarityKey)}
+              </span>
+            </div>
+            
+            <div style="display:flex;flex-wrap:wrap;gap:5px;margin:15px 0;justify-content:space-between;">
+              <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                ${mainJob ? `
+                  <span style="display:inline-block;padding:2px 8px;background:var(--role-${mainJob?.toLowerCase() === '딜러' ? 'dealer' : mainJob?.toLowerCase() === '탱커' ? 'tank' : mainJob?.toLowerCase() === '브루저' ? 'bruiser' : mainJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:6px;font-size:12px;">
+                    ${mainJob}
+                  </span>
+                ` : ''}
+                ${subJob ? `
+                  <span style="display:inline-block;padding:2px 8px;background:var(--role-${subJob?.toLowerCase() === '딜러' ? 'dealer' : subJob?.toLowerCase() === '탱커' ? 'tank' : subJob?.toLowerCase() === '브루저' ? 'bruiser' : subJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:6px;font-size:12px;">
+                    ${subJob}
+                  </span>
+                ` : ''}
+              </div>
+              ${affinity ? `
+                <span style="display:inline-block;padding:2px 8px;background:var(--affinity-${affinity.toLowerCase()});color:white;border-radius:6px;font-size:12px;">
+                  ${affinity}
+                </span>
+              ` : ''}
+            </div>
+            
+            <div style="background:rgba(0,0,0,0.4);padding:12px;border-radius:8px;margin:15px 0;">
+  <div style="color:#e9ecff;font-weight:600;margin-bottom:6px;font-size:16px;">
+    HP: ${stats.hp} | ATK: ${stats.atk}
+  </div>
+  <div style="color:#e9ecff;font-weight:600;font-size:16px;">
+    DEF: ${stats.def} | SPD: ${stats.spd}
+  </div>
+</div>
+            
+            ${activeSkill?.name ? `
+              <div style="background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;margin-top:15px;">
+                <div style="font-weight:bold;color:#60a5fa;font-size:16px;margin-bottom:6px;">
+                  액티브: ${activeSkill.name}
+                </div>
+                <div style="font-size:14px;color:#cccccc;line-height:1.3;">
+                  ${activeSkill.description || activeSkill.desc || ''}
+                </div>
+              </div>
+            ` : ''}
+            
+            ${passiveSkill?.name ? `
+              <div style="background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;margin-top:8px;">
+                <div style="font-weight:bold;color:#a78bfa;font-size:16px;margin-bottom:6px;">
+                  패시브: ${passiveSkill.name}
+                </div>
+                <div style="font-size:14px;color:#cccccc;line-height:1.3;">
+                  ${passiveSkill.description || passiveSkill.desc || ''}
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+      
+      // 표시 및 애니메이션
+      wrap.style.display = 'flex';
+      wrap.classList.remove('active');
+      
+      setTimeout(() => {
+        wrap.classList.add('active');
+      }, 10);
+      
+      // 클릭하면 닫기
+      wrap.onclick = () => {
+        wrap.style.display = 'none';
+        wrap.classList.remove('active');
+      };
+      
+      // 8초 후 자동으로 사라짐
+      setTimeout(() => { 
+        wrap.style.display = 'none'; 
+        wrap.classList.remove('active');
+      }, 8000);
+    }
+};
+} 
+
+// REVEAL_CARD 수신 콜백 - 개선된 showDrawReveal 사용
+if (!window.__revealListenerBound) {
+  window.addEventListener('message', function(e){
+    const d = e.data;
+    if (d && d.type === 'REVEAL_CARD') {
+      const { card, rarity } = d.payload || {};
+      if (card && rarity) {
+        // 개선된 showDrawReveal 호출
+        if (typeof window.showDrawReveal === 'function') {
+          window.showDrawReveal(card, rarity);
+        }
+        // 가차 후 즉시 쿨타임 시작
+        const drawTime = new Date().toISOString();
+        cooldownManager.startCooldown('draw', drawTime, 60);
+      }
+    }
+  });
+  window.__revealListenerBound = true;
+}</script>
+
+<script>
+
+// 덱 부족 모달 표시 함수
+window.showDeckWarningModal = function() {
+    const modal = document.getElementById('deckWarningModal');
+    const confirmBtn = document.getElementById('confirmDeckWarning');
+    
+    if (!modal) return;
+    
+    modal.style.display = 'flex';
+    
+    confirmBtn.onclick = () => {
+        modal.style.display = 'none';
+        // 덱 설정 화면으로 이동
+        if (typeof showScreen === 'function') {
+            showScreen('deckScreen');
+        }
+    };
+    
+    // ESC 키로 닫기
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            modal.style.display = 'none';
+        }
+    }, { once: true });
+};
+
+// === 첫 로그인 자동 체크 ===
+(function() {
+    if (window.parent === window) return;  // 임베디드 아니면 실행 안함
+    
+    let checked = false;
+    const timer = setInterval(async () => {
+        if (checked) {
+            clearInterval(timer);
+            return;
+        }
+        
+        try {
+            const sb = window.parent.__sb_singleton;
+            if (!sb) return;
+            
+            const { data: { session } } = await sb.auth.getSession();
+            if (session?.user?.id) {
+                checked = true;
+                clearInterval(timer);
+                console.log('[첫 로그인 체크] 세션 감지됨');
+                
+                // 첫 로그인 보상 체크
+                const { data: profile } = await sb
+                    .from('user_profiles')
+                    .select('first_login_rewarded')
+                    .eq('user_id', session.user.id)
+                    .maybeSingle();
+                
+                if (!profile?.first_login_rewarded) {
+                    console.log('[첫 로그인 체크] 보상 모달 표시');
+                    setTimeout(() => {
+                        if (typeof showFirstLoginRewardModal === 'function') {
+                            showFirstLoginRewardModal();
+                        }
+                    }, 1000);
+                }
+            }
+        } catch(e) {
+            console.log('[첫 로그인 체크 오류]', e);
+        }
+    }, 500);
+})();
+
+// === 이미지/동영상 렌더링 헬퍼 ===
+window.renderCardMedia = function(url, altText) {
+    if (!url || url === '') return `<img src="${window.FALLBACK_IMG}" alt="${altText}" style="width:100%;height:100%;object-fit:cover;">`;
+    
+    if (url.endsWith('.mp4') || url.endsWith('.webm') || url.endsWith('.mov')) {
+        return `<video src="${url}" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;" onerror="this.poster='${window.FALLBACK_IMG}'"></video>`;
+    } else {
+        return `<img src="${url}" alt="${altText}" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='${window.FALLBACK_IMG}';this.onerror=null;">`;
+    }
+};
+// === GPT 최종안: 정규화 함수 (하이픈 표준) ===
+window.normRarity = r => String(r || 'common')
+  .toLowerCase()
+  .replace(/_/g, '-')
+  .replace(/\s+/g, '-');
+
+// === GPT 최종안: 희귀도 순서 정의 ===
+window.RARITY_ORDER = ['super-common', 'gold', 'epic', 'ultra-rare', 'rare', 'common'];
+
+// === 희귀도 표시용 함수 ===
+const displayRarity = r => {
+  const n = normRarity(r);
+  const map = {
+    'common': 'Common',
+    'rare': 'Rare',
+    'ultra-rare': 'Ultra Rare',
+    'epic': 'Epic',
+    'gold': 'Gold',
+    'super-common': 'Super Common'
+  };
+  return map[n] || n.charAt(0).toUpperCase() + n.slice(1);
+};
+
+// === A팀 작업지시서 공통 - 플백 이미지 & 정규화 ===
+// FALLBACK_IMG는 이제 window.FALLBACK_IMG 사용
+
+// === A팀 작업지시서 A-4: 희귀도 스탯 보정 ===
+const rarityMultipliers = {
+    'common': {hp:1.0, atk:1.0, def:1.0, spd:1.0},
+    'rare': {hp:1.12, atk:1.12, def:1.12, spd:1.08},
+    'ultra-rare': {hp:1.25, atk:1.25, def:1.25, spd:1.25},
+    'epic': {hp:1.40, atk:1.40, def:1.40, spd:1.40},
+    'gold': {hp:1.57, atk:1.57, def:1.57, spd:1.57},
+    'super-common': {hp:1.80, atk:1.80, def:1.80, spd:1.80}
+};
+
+function localApplyRarity(b, r){
+    const rKey = normRarity(r);  // 정규화 적용
+    const m = rarityMultipliers[rKey] || rarityMultipliers['common'];
+    return { 
+        hp: Math.round((b?.hp||0)*m.hp), 
+        atk: Math.round((b?.atk||0)*m.atk),
+        def: Math.round((b?.def||0)*m.def), 
+        spd: Math.round((b?.spd||0)*m.spd),
+        affinity: b?.affinity 
+    };
+}
+
+function applyRarity(b, r){
+    try { 
+        if (window.CardUtils?.applyRarityStats) return CardUtils.applyRarityStats(b, r); 
+    } catch(e){}
+    return localApplyRarity(b, r);
+}
+
+// === CardUtils: 안전/호환/성능 플래그 ===
+window.CardUtils = window.CardUtils || {};
+(function(C){
+  // ⚙️ 플래그: 기본은 보수적
+  C.FLAGS = {
+    USE_MEMO: false,        // 처음엔 OFF → 문제 없으면 ON
+    STRICT_MASTER: false,   // 캐시 로딩 실패시 throw 여부 (기본은 continue)
+    MEMO_MAX: 100           // LRU 용량 (작게 시작)
+  };
+
+  // 🧠 간단 LRU (전역 오염 방지용 네임스페이스 내부)
+  class SimpleLRU {
+    constructor(max=100){ this.max=max; this.m=new Map(); }
+    get(k){ if(!this.m.has(k)) return; const v=this.m.get(k); this.m.delete(k); this.m.set(k,v); return v; }
+    set(k,v){ if(this.m.has(k)) this.m.delete(k); this.m.set(k,v); if(this.m.size>this.max){ const f=this.m.keys().next().value; this.m.delete(f);} }
+    clear(){ this.m.clear(); }
+  }
+  C.SimpleLRU = C.SimpleLRU || SimpleLRU;
+  const MEMO = new C.SimpleLRU(C.FLAGS.MEMO_MAX);
+
+  // 🧩 희귀도 매핑/배수(액셀급)
+  const S2N = { c:'common', r:'rare', ur:'ultra-rare', e:'epic', g:'gold', sc:'super-common' };
+  C.RARITY_MULTIPLIER = C.RARITY_MULTIPLIER || {
+    c:{hp:1.00, atk:1.00, def:1.00, spd:1.00},
+    r:{hp:1.12, atk:1.12, def:1.12, spd:1.08},
+    ur:{hp:1.25, atk:1.25, def:1.25, spd:1.25},
+    e:{hp:1.40, atk:1.40, def:1.40, spd:1.40},
+    g:{hp:1.57, atk:1.57, def:1.57, spd:1.57},
+    sc:{hp:1.80, atk:1.80, def:1.80, spd:1.80}
+  };
+
+  // A-1: 희귀도 보정 매핑 보강
+  const NAME2SUF = {
+    'common':'c','rare':'r','ultra-rare':'ur','ultra_rare':'ur',
+    'epic':'e','gold':'g','super-common':'sc','super_common':'sc'
+  };
+  C.applyRarityStats = function(baseStats, sufOrName){
+    const key = String(sufOrName||'common').toLowerCase().replace(/_/g,'-');
+    const suf = NAME2SUF[key] || key;
+    const mul = C.RARITY_MULTIPLIER[suf] || C.RARITY_MULTIPLIER.c;
+    const out = {...(baseStats||{})};
+    ['hp','atk','def','spd'].forEach(k => out[k] = Math.round((out[k]||0)*(mul[k]||1)));
+    return out;
+  };
+
+  // ✅ 기존 인터페이스 유지용 얇은 파서
+  function parseSlugRaw(input){
+    const raw = String(input||'');
+    const norm = raw.trim().toLowerCase().replace(/\s+/g,'').replace(/-/g,'_');
+    const parts = norm.split('_');
+    const res = { base:null, suf:null, rarity:null, isValid:false, norm };
+    if (parts.length===2 && parts[0] && parts[1] && ['c','r','ur','e','g','sc'].includes(parts[1])) {
+      res.base = parts[0]; res.suf = parts[1]; res.rarity = S2N[res.suf]; res.isValid=true;
+    } else {
+      res.base = parts[0] || norm || null; // 플백: base만 유지
+    }
+    return res;
+  }
+
+  // 호환: 기존 코드가 기대하는 {base,suf,rarity}
+  const _oldParse = window.parseSlug || null;
+  C.parseSlug = function(input){
+    // 메모/성능
+    if (C.FLAGS.USE_MEMO) { const hit = MEMO.get(input); if (hit) return hit; }
+    const r = parseSlugRaw(input);
+    const out = { base:r.base, suf:r.suf, rarity:r.rarity }; // 기존과 동일
+    if (C.FLAGS.USE_MEMO) MEMO.set(input, out);
+    return out;
+  };
+
+  // 확장형 필요 시 사용하는 버전 (isValid, norm 포함)
+  C.parseSlugEx = function(input){ return parseSlugRaw(input); };
+
+  // 💾 base->master 캐시 (단일 소스)
+  C.masterByBase = C.masterByBase || {};
+  function sbClient(){
+    try { return (typeof getSB==='function'?getSB(): (window.__sb_singleton||window.sb||window.supabase)) || null; }
+    catch(_){ return null; }
+  }
+
+  C.ensureMasterCache = async function(bases=[], opts={}){
+    const cfg = { strict: C.FLAGS.STRICT_MASTER, ...opts };
+    const sb = sbClient(); if (!sb) { if (cfg.strict) throw new Error('Supabase missing'); return false; }
+    const uniq = [...new Set((bases||[]).filter(Boolean))];
+    const req = uniq.filter(b => !C.masterByBase[b]);
+    if (!req.length) return true;
+    try{
+      const { data, error } = await sb.from('card_master')
+        .select('slug,name,portrait_url,base_stats,skills,main_job,sub_job')
+        .in('slug', req);
+      if (error) throw error;
+      (data||[]).forEach(m => C.masterByBase[m.slug]=m);
+      return true;
+    }catch(e){
+      console.warn('[ensureMasterCache]', e.message||e);
+      if (cfg.strict) throw e;
+      return false;
+    }
+  };
+
+  C.clearClientCaches = function(){
+    MEMO.clear();
+    C.masterByBase = {};
+  };
+  window.addEventListener('pagehide', C.clearClientCaches);
+
+})(window.CardUtils);
+
+// 기존 코드 호환성을 위한 브리징
+window.parseSlug = window.CardUtils.parseSlug;
+
+/* =========================
+   Battle Engine v3 Fixed
+   - ATB 속도 튜닝 완화
+   - extra_turn 임계치 수정
+   - showScreen 통합
+   - 한 프레임당 처리 유닛 제한
+   ========================= */
+
+// === 로그 필터 상태 전역 변수 ===
+window.currentLogFilter = 'all';
+
+// === 전역 설정 (수정됨: ATB 속도 완화) ===
+window.GameConfig = {
+    atb: { 
+        threshold: 1000,  // 임계치
+        base_fill_per_tick: 8,  // [수정] 10 → 8 (기본 게이지 상승 완화)
+        spd_scale: 0.06  // [수정] 0.2 → 0.06 (SPD 영향 크게 완화)
+    },
+    damage: { 
+        def_formula: '100/(100+def)', 
+        min: 1 
+    },
+    acc_resist: { 
+        base_hit: 1.0, 
+        min_hit: 0.15, 
+        max_hit: 0.95, 
+        acc_w: 1.0, 
+        res_w: 1.0 
+    },
+    ai: { 
+        category_weights: { 
+            Basic: 1, 
+            SingleNuke: 1.2, 
+            Heal: 1.1,
+            HealSelf: 1.05,
+            HealTeam: 1.15,
+            AoE: 1.0,
+            Default: 1 
+        }, 
+        repeat_penalty: 0.15 
+    }
+};
+
+// === 시드 기반 난수 생성기 ===
+window.RNG = {
+    seed: 0,
+    nextFloat() {
+        this.seed = (this.seed * 9301 + 49297) % 233280;
+        return this.seed / 233280;
+    },
+    init(seed) {
+        this.seed = seed || Math.floor(Math.random() * 233280);
+        console.log('[RNG] Seed initialized:', this.seed);
+    }
+};
+
+// === 유틸리티 함수들 ===
+const $  = (s, r=document) => (r||document).querySelector(s);
+const $$ = (s, r=document) => [...(r||document).querySelectorAll(s)];
+const clone = x => JSON.parse(JSON.stringify(x));
+const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+const hpPct = u => Math.max(0, Math.round(100 * u.hp / u.maxHP));
+const pickAlive = arr => arr.filter(u => u.flags.alive);
+
+// === [수정] showScreen 통합 - 배틀 화면 가드 로직 유지 ===
+window.showScreen = function(screenId) {
+    const screens = document.querySelectorAll('.screen');
+    screens.forEach(s => s.classList.remove('active'));
+    const targetScreen = document.getElementById(screenId);
+    if (targetScreen) {
+        targetScreen.classList.add('active');
+    }
+    
+    // 덱 화면 진입시 초기화
+    if (screenId === 'deckScreen' && typeof onEnterDeckScreen === 'function') {
+        onEnterDeckScreen();
+    }
+    
+    // G-3: 카드 화면 진입 시 컬렉션 로드
+    if (screenId === 'cardsScreen') {
+        loadCollectionFromServer().then(cards => {
+            allCards = cards;  // 전역 변수에 저장
+            filteredCards = cards;  // 필터링된 카드도 초기화
+            renderCollection(cards);
+            setupCardFilters(); // 필터 이벤트 리스너 설정
+        }).catch(err => {
+            console.warn('[cardsScreen] 로드 실패:', err);
+            const host = document.getElementById('cardCollection');
+            if (host) {
+                host.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">카드를 불러올 수 없습니다.</div>';
+            }
+        });
+    }
+    
+    // [유지] battle screen guard for start button
+    if (screenId === 'battleScreen') {
+        const startBtn = document.getElementById('startBattleBtn');
+        const vsLabel = document.getElementById('vsLabel');
+        if (startBtn) {
+            if (window.__battlePayload) {
+                startBtn.disabled = false;
+                startBtn.style.opacity = '1';
+                startBtn.style.cursor = 'pointer';
+                startBtn.onclick = startBattle;
+                if (vsLabel) {
+                    vsLabel.textContent = '전투 준비 완료! 시작하기 버튼을 누르세요.';
+                    vsLabel.classList.remove('victory', 'defeat');
+                }
+            } else {
+                startBtn.disabled = true;
+                startBtn.style.opacity = '0.5';
+                startBtn.style.cursor = 'not-allowed';
+                if (vsLabel) {
+                    vsLabel.textContent = '매칭 중...';
+                    vsLabel.classList.remove('victory', 'defeat');
+                }
+            }
+        }
+    }
+};
+
+// === 전투 상태 ===
+let state = {
+    speed: 1,
+    running: false,
+    tickHandle: null,
+    cfg: null,
+    teams: { A: [], B: [] },
+    turnCount: 0,
+    lastSkillUsed: {},
+    triggeredOnGetHit: new Set(),
+    
+    // Phase 3 - 누산기 시스템
+    accumulator: 0,
+    simStep: 50,  // 고정 시뮬레이션 스텝 (ms)
+    lastTime: 0,
+    
+    // 상태 UID 카운터
+    statusUid: 0,
+    
+    // 5v5 추가
+    partySize: 5,  // 기본값 5
+    
+    // [추가] 한 프레임 처리 제한
+    maxUnitsPerFrame: 1,  // 한 프레임에 최대 1명까지만 처리
+    
+    // 작업지시서: match_id 저장
+    matchId: null,
+
+   // *** 여기에 추가 ***
+    logFilter: 'all'  // 로그 필터 상태
+};
+
+// === UI 관리 ===
+window.setSpeed = function(btn, x) {
+    state.speed = x;
+    $$('.speed-btn').forEach(b => b.classList.remove('active'));  // $ → $$ 로 변경
+    if (btn) btn.classList.add('active');
+};
+
+// === 로그 시스템 ===
+// gpt_game_FIXED_REPAIRED_v2.html의 log() 함수 수정
+function log(type, msg) {
+    const el = $('#battleLog');
+    if (!el) return;
+    const line = document.createElement('div');
+    
+    const classes = ['log-line', type];
+    if (['buff', 'debuff', 'dot', 'tm', 'cooldown'].includes(type)) {
+        classes.push('status');
+    }
+    
+    line.className = classes.join(' ');
+    line.textContent = msg;
+    
+    // 전역 변수 직접 참조
+    if (typeof GLOBAL_LOG_FILTER !== 'undefined' && GLOBAL_LOG_FILTER !== 'all') {
+        let shouldShow = false;
+        
+        // 각 필터에 대한 정확한 매칭
+        switch(GLOBAL_LOG_FILTER) {
+            case 'damage':
+                shouldShow = (type === 'damage');
+                break;
+            case 'heal':
+                shouldShow = (type === 'heal');
+                break;
+            case 'buff':
+                shouldShow = (type === 'buff');  // buff만 표시
+                break;
+            case 'turn':
+                shouldShow = (type === 'turn' || type === 'turn');
+                break;
+            case 'status':
+                // status는 buff, debuff, dot 등 모든 상태 효과 포함
+                shouldShow = ['buff', 'debuff', 'dot', 'tm', 'cooldown', 'status'].includes(type);
+                break;
+            default:
+                shouldShow = false;
+        }
+        
+        if (!shouldShow) {
+            line.style.display = 'none';
+        }
+    }
+    
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+}
+// === 명중/저항 시스템 ===
+function roll(prob = 1.0, acc = 0, res = 0, isHostile = true) {
+    const cfg = window.GameConfig.acc_resist;
+    
+    // 우호적 이펙트는 acc/res 체크 없음
+    if (!isHostile) {
+        return window.RNG.nextFloat() < prob;
+    }
+    
+    const base = prob;
+    const adj = clamp(
+        cfg.base_hit + acc * cfg.acc_w - res * cfg.res_w,
+        cfg.min_hit,
+        cfg.max_hit
+    );
+    const final = clamp(base * adj, cfg.min_hit, cfg.max_hit);
+    return window.RNG.nextFloat() < final;
+}
+
+// === 타게팅 시스템 ===
+function resolveTargets(targetType, source, sourceTeam, enemyTeam, count = 1) {
+    const allies = pickAlive(sourceTeam);
+    const enemies = pickAlive(enemyTeam);
+    let targets = [];
+    
+    switch(targetType) {
+        case 'single':
+            // HP 가장 낮은 적
+            if (enemies.length > 0) {
+                targets = [enemies.reduce((a, b) => a.hp < b.hp ? a : b)];
+            }
+            break;
+            
+        case 'aoe':
+            targets = enemies;
+            break;
+            
+        case 'random':
+            // 중복 불가 방식으로 구현
+            const availableTargets = [...enemies];
+            for (let i = 0; i < count && availableTargets.length > 0; i++) {
+                const idx = Math.floor(window.RNG.nextFloat() * availableTargets.length);
+                targets.push(availableTargets[idx]);
+                availableTargets.splice(idx, 1);
+            }
+            break;
+            
+        case 'self':
+            targets = [source];
+            break;
+            
+        case 'allies':
+            targets = allies;
+            break;
+            
+        case 'enemies':
+            targets = enemies;
+            break;
+            
+        case 'ally_lowest':
+            if (allies.length > 0) {
+                targets = [allies.reduce((a, b) => {
+                    const aPct = (a.hp / a.maxHP);
+                    const bPct = (b.hp / b.maxHP);
+                    if (aPct < bPct) return a;
+                    if (aPct > bPct) return b;
+                    // 동률 시: 절대 HP → 인덱스
+                    if (a.hp < b.hp) return a;
+                    if (a.hp > b.hp) return b;
+                    return allies.indexOf(a) < allies.indexOf(b) ? a : b;
+                })];
+            }
+            break;
+            
+        default:
+            if (enemies.length > 0) {
+                targets = [enemies[0]];
+            }
+    }
+    
+    return targets.filter(Boolean);
+}
+
+// === 상태 관리 시스템 ===
+function applyStatus(target, spec) {
+    if (!target.statuses) target.statuses = [];
+    
+    const newStatus = {
+        id: spec.id || spec.type || spec.kind || 'unknown',
+        kind: spec.kind || 'neutral',
+        isBuff: spec.isBuff !== undefined ? spec.isBuff : (spec.kind === 'buff' || spec.type?.includes('up')),
+        amount: spec.amount || 0,
+        pct: spec.pct || 0,
+        duration: spec.duration || 0,
+        stacks: spec.stacks || 1,
+        priority: spec.priority || 0,
+        source: spec.source || null,
+        tag: spec.tag || null,
+        appliedAt: state.turnCount,
+        uid: ++state.statusUid
+    };
+    
+    // DOT 스택 완전 구현
+    if (newStatus.id === 'dot' || newStatus.kind === 'dot') {
+        const dotKey = spec.tag || spec.kind || 'dot_generic';
+        newStatus.tag = dotKey;
+        
+        // 같은 키의 DOT 찾기
+        const existingDots = target.statuses.filter(s => s.tag === dotKey);
+        
+        if (existingDots.length >= 5) {
+            // 5스택 초과시 가장 오래된 것 교체 (UID 타이브레이커)
+            const oldest = existingDots.reduce((a, b) => {
+                if ((a.appliedAt || 0) < (b.appliedAt || 0)) return a;
+                if ((a.appliedAt || 0) > (b.appliedAt || 0)) return b;
+                return (a.uid || 0) < (b.uid || 0) ? a : b;
+            });
+            target.statuses = target.statuses.filter(s => s !== oldest);
+            log('dot status', `${target.name} DOT(${dotKey}) 오래된 스택 교체`);
+        }
+        
+        target.statuses.push(newStatus);
+        const currentStacks = target.statuses.filter(s => s.tag === dotKey).length;
+        log('dot status', `${target.name} DOT(${dotKey}) x${currentStacks} 적용 (${newStatus.duration}턴)`);
+        return;
+    }
+    
+    // 일반 상태 처리
+    const existing = target.statuses.find(s => s.id === newStatus.id);
+    if (existing) {
+        // 강한 값/긴 지속 우선
+        const newStrength = newStatus.amount || newStatus.pct || 0;
+        const existingStrength = existing.amount || existing.pct || 0;
+        
+        if (newStrength > existingStrength) {
+            // 더 강한 효과로 교체
+            Object.assign(existing, newStatus);
+        } else if (newStrength === existingStrength && newStatus.duration > existing.duration) {
+            // 같은 강도면 긴 지속시간으로
+            existing.duration = newStatus.duration;
+        }
+    } else {
+        target.statuses.push(newStatus);
+    }
+    
+    const logType = newStatus.isBuff ? 'buff' : 'debuff';
+    log(logType, `${target.name} ${newStatus.id} 적용 (${newStatus.duration}턴)`);
+}
+
+function getStat(unit, statName) {
+    let base = unit[statName] || 0;
+    
+    unit.statuses.forEach(s => {
+        if (s.id === `${statName}_up`) {
+            base = Math.round(base * (1 + (s.pct || 0.2)));
+        }
+        if (s.id === `${statName}_down`) {
+            base = Math.round(base * (1 - (s.pct || 0.2)));
+        }
+    });
+    
+    return Math.max(1, base);
+}
+
+function hasStatus(unit, statusId) {
+    return unit.statuses.some(s => s.id === statusId);
+}
+
+// 클렌즈/스트립 개선 - UID 타이브레이커 추가
+function cleanse(unit, n = 1, filter = 'debuff') {
+    let removed = 0;
+    const toRemove = [];
+    
+    // 최신 우선 (appliedAt 큰 순) → priority 큰 순 → uid 큰 순
+    const debuffs = unit.statuses
+        .filter(s => !s.isBuff && (filter === 'all' || filter === 'debuff'))
+        .sort((a, b) => {
+            if ((b.appliedAt || 0) !== (a.appliedAt || 0)) 
+                return (b.appliedAt || 0) - (a.appliedAt || 0);
+            if (b.priority !== a.priority) 
+                return b.priority - a.priority;
+            return (b.uid || 0) - (a.uid || 0);
+        });
+    
+    for (let i = 0; i < Math.min(n, debuffs.length); i++) {
+        toRemove.push(debuffs[i]);
+        removed++;
+    }
+    
+    unit.statuses = unit.statuses.filter(s => !toRemove.includes(s));
+    
+    if (removed > 0) {
+        log('system status', `${unit.name} 디버프 ${removed}개 제거`);
+    }
+}
+
+function strip(unit, n = 1, filter = 'buff') {
+    let removed = 0;
+    const toRemove = [];
+    
+    // 최신 우선 (appliedAt 큰 순) → priority 큰 순 → uid 큰 순
+    const buffs = unit.statuses
+        .filter(s => s.isBuff && (filter === 'all' || filter === 'buff'))
+        .sort((a, b) => {
+            if ((b.appliedAt || 0) !== (a.appliedAt || 0)) 
+                return (b.appliedAt || 0) - (a.appliedAt || 0);
+            if (b.priority !== a.priority) 
+                return b.priority - a.priority;
+            return (b.uid || 0) - (a.uid || 0);
+        });
+    
+    for (let i = 0; i < Math.min(n, buffs.length); i++) {
+        toRemove.push(buffs[i]);
+        removed++;
+    }
+    
+    unit.statuses = unit.statuses.filter(s => !toRemove.includes(s));
+    
+    if (removed > 0) {
+        log('system status', `${unit.name} 버프 ${removed}개 제거`);
+    }
+}
+
+// === Effects 실행 파이프라인 ===
+function applyEffect(effect, source, targets) {
+    targets.forEach(target => {
+        if (!target.flags.alive) return;
+        
+        // 우호/적대 판단
+        const isHostile = !['heal', 'buff', 'cleanse', 'tm_up', 'cooldown_reduce', 'atk_up', 'def_up', 'spd_up', 'shield'].includes(effect.type || effect.kind);
+        const isSameTeam = source.flags.team === target.flags.team;
+        const shouldCheckResist = isHostile && !isSameTeam;
+        
+        // 확률 체크
+        const effectProb = effect.prob !== undefined ? effect.prob : 1.0;
+        if (!roll(effectProb, source.acc, target.res, shouldCheckResist)) {
+            if (shouldCheckResist) {
+                log('system', `${source.name}의 ${effect.type || effect.kind} 효과가 저항됨`);
+            }
+            return;
+        }
+        
+        // heal 처리 추가
+        if (effect.type === 'heal' || effect.kind === 'heal') {
+            applyHeal(effect, source, target);
+            return;
+        }
+        
+        switch(effect.type || effect.kind) {
+            case 'damage':
+                applyDamage(effect, source, target);
+                break;
+                
+            case 'stun':
+            case 'freeze':
+                applyStatus(target, {
+                    id: effect.type || effect.kind,
+                    kind: 'debuff',
+                    isBuff: false,
+                    duration: effect.duration || 1
+                });
+                break;
+                
+            case 'atk_up':
+            case 'atk_down':
+            case 'def_up':
+            case 'def_down':
+            case 'spd_up':
+            case 'spd_down':
+                const statType = effect.type || effect.kind;
+                applyStatus(target, {
+                    id: statType,
+                    kind: statType.includes('up') ? 'buff' : 'debuff',
+                    isBuff: statType.includes('up'),
+                    pct: effect.pct || 0.2,
+                    duration: effect.duration || 3
+                });
+                break;
+                
+            case 'shield':
+                const shieldValue = effect.pctMaxHp ? 
+                    Math.round(target.maxHP * effect.pctMaxHp) : 
+                    (effect.value || 200);
+                applyStatus(target, {
+                    id: 'shield',
+                    kind: 'buff',
+                    isBuff: true,
+                    amount: shieldValue,
+                    duration: effect.duration || 2
+                });
+                break;
+                
+            case 'dot':
+                applyStatus(target, {
+                    id: 'dot',
+                    kind: 'dot',
+                    tag: effect.tag || 'dot_generic',
+                    isBuff: false,
+                    pct: effect.pct || 0,
+                    pctAtk: effect.pctAtk || 0,
+                    amount: effect.flat || 0,
+                    duration: effect.duration || 3,
+                    source: source
+                });
+                break;
+                
+            case 'tm_up':
+            case 'tm_down':
+                const tmType = effect.type || effect.kind;
+                const th = state.cfg.atb.threshold;
+                const delta = Math.round((effect.pct || 0.3) * th);
+                const direction = tmType === 'tm_down' ? -1 : 1;
+                target.turnMeter = clamp(target.turnMeter + (delta * direction), 0, th);
+                log('tm status', `${target.name} 턴미터 ${direction > 0 ? '+' : ''}${Math.round((delta / th) * 100)}%`);
+                break;
+                
+            case 'cooldown_reduce':
+            case 'cooldown_increase':
+                const cdType = effect.type || effect.kind;
+                const cdChange = (effect.amount || 1) * (cdType === 'cooldown_increase' ? 1 : -1);
+                const skillKey = effect.skill || 'active';
+                if (target.cooldowns[skillKey] !== undefined) {
+                    const before = target.cooldowns[skillKey];
+                    target.cooldowns[skillKey] = Math.max(0, target.cooldowns[skillKey] + cdChange);
+                    if (before !== target.cooldowns[skillKey]) {
+                        log('cooldown status', `${target.name} ${skillKey} 쿨다운 ${cdChange > 0 ? '+' : ''}${cdChange}`);
+                    }
+                }
+                break;
+                
+            case 'cleanse':
+                cleanse(target, effect.n || 1, effect.filter || 'debuff');
+                break;
+                
+            case 'strip':
+                strip(target, effect.n || 1, effect.filter || 'buff');
+                break;
+                
+            // [수정] extra_turn - 임계치 사용
+            case 'extra_turn':
+                if (target === source) {  // 자기 자신에게만 적용
+                    target.turnMeter = state.cfg.atb.threshold;  // [수정: 100 → threshold]
+                    log('tm status', `${target.name} 추가 턴 획득!`);
+                }
+                break;
+        }
+    });
+}
+
+// === 힐 처리 ===
+function applyHeal(effect, source, target) {
+    let healAmount = 0;
+    
+    if (effect.scale === 'atk') {
+        healAmount = getStat(source, 'atk') * (effect.mult || 2.0);
+    } else if (effect.scale === 'hp') {
+        healAmount = target.maxHP * (effect.mult || 0.15);
+    } else if (effect.scale === 'flat') {
+        healAmount = effect.flat || 100;
+    } else {
+        healAmount = getStat(source, 'atk') * 2.0; // 기본값
+    }
+    
+    healAmount = Math.round(healAmount);
+    const beforeHP = target.hp;
+    target.hp = Math.min(target.maxHP, target.hp + healAmount);
+    const actualHeal = target.hp - beforeHP;
+    
+    // 0 회복시 로그 생략
+    if (actualHeal > 0) {
+        log('heal', `${source.name} → ${target.name} +${actualHeal} 회복 (HP ${target.hp}/${target.maxHP})`);
+    }
+    
+    updateHP(target);
+}
+
+// === 피해 적용 ===
+function applyDamage(effect, source, target) {
+    let damage = 0;
+    
+    if (effect.scale === 'atk') {
+        damage = getStat(source, 'atk') * (effect.mult || 1);
+    } else if (effect.scale === 'hp') {
+        damage = source.hp * (effect.mult || 0.3);
+    } else if (effect.flat) {
+        damage = effect.flat;
+    } else {
+        damage = getStat(source, 'atk');
+    }
+    
+    // 방어력 적용
+    if (!effect.ignore_def) {
+        const def = getStat(target, 'def');
+        damage = Math.round(damage * (100 / (100 + def)));
+    }
+    
+    // 실드 처리
+    const shield = target.statuses.find(s => s.id === 'shield');
+    if (shield && shield.amount > 0) {
+        const absorbed = Math.min(damage, shield.amount);
+        shield.amount -= absorbed;
+        damage -= absorbed;
+        if (shield.amount <= 0) {
+            target.statuses = target.statuses.filter(s => s.id !== 'shield');
+        }
+    }
+    
+    damage = Math.max(window.GameConfig.damage.min, Math.round(damage));
+    const beforeHP = target.hp;
+    target.hp = Math.max(0, target.hp - damage);
+    
+    log('damage', `${source.name} → ${target.name} ${damage} 피해`);
+
+    updateHP(target);
+
+   // 공격 애니메이션 추가 (공격자)
+    if (damage > 0 && source.__el && source.__el.parentElement) {
+        const attackSlot = source.__el.parentElement;
+        attackSlot.classList.add('attacking');
+        setTimeout(() => {
+            attackSlot.classList.remove('attacking');
+        }, 300);
+    }
+
+    // 피해 애니메이션 추가
+    if (damage > 0 && target.__el && target.__el.parentElement) {
+        const slot = target.__el.parentElement;
+        slot.classList.add('damage-shake');
+        setTimeout(() => {
+            slot.classList.remove('damage-shake');
+        }, 300);
+    }
+    
+    // 패시브 트리거
+    if (damage > 0 && beforeHP > 0) {
+        // on_hit 트리거 (공격자)
+        applyPassive(source, 'on_hit', {target: target, damage: damage});
+        
+        // on_get_hit 트리거 (피격자)
+        if (target.hp > 0 && !state.triggeredOnGetHit.has(target.slug)) {
+            state.triggeredOnGetHit.add(target.slug);
+            applyPassive(target, 'on_get_hit', {source: source, damage: damage});
+        }
+        
+        // on_death 트리거
+        if (target.hp === 0) {
+            target.flags.alive = false;
+            applyPassive(target, 'on_death', {killer: source});
+        }
+    }
+    
+    // 생명력 흡수
+    if (effect.life_steal && effect.life_steal > 0) {
+        const heal = Math.round(damage * effect.life_steal);
+        source.hp = Math.min(source.maxHP, source.hp + heal);
+        log('heal', `${source.name} 생명력 흡수 ${heal}`);
+        updateHP(source);
+    }
+}
+
+// === 턴 종료 처리 ===
+function tickStatuses_EndOfTurn(unit) {
+    if (!unit.statuses) return;
+    
+    // DOT 처리 완전 구현
+    const dots = unit.statuses.filter(s => s.id === 'dot' || s.kind === 'dot');
+    const dotsByKey = {};
+    
+    // 키별로 그룹화하고 피해 계산
+    dots.forEach(dot => {
+        const key = dot.tag || 'dot_generic';
+        if (!dotsByKey[key]) {
+            dotsByKey[key] = {
+                stacks: [],
+                totalDamage: 0
+            };
+        }
+        dotsByKey[key].stacks.push(dot);
+        
+        // 각 스택의 피해 계산
+        let stackDamage = 0;
+        if (dot.pct) {
+            stackDamage += Math.round(unit.maxHP * dot.pct);
+        }
+        if (dot.amount) {
+            stackDamage += dot.amount;
+        }
+        if (dot.source && dot.pctAtk) {
+            stackDamage += Math.round(getStat(dot.source, 'atk') * dot.pctAtk);
+        }
+        dotsByKey[key].totalDamage += stackDamage;
+    });
+    
+    // DOT 피해 적용 및 패시브 트리거
+    let totalDotDamage = 0;
+    Object.entries(dotsByKey).forEach(([key, data]) => {
+        if (data.totalDamage > 0) {
+            totalDotDamage += data.totalDamage;
+            unit.hp = Math.max(0, unit.hp - data.totalDamage);
+            log('dot status', `${unit.name} DOT(${key}) x${data.stacks.length} 지속피해 ${data.totalDamage}`);
+            updateHP(unit);
+        }
+    });
+    
+    // DOT로 인한 패시브 트리거
+    if (totalDotDamage > 0) {
+        if (unit.hp > 0) {
+            // on_get_hit 트리거 (DOT 전체에 대해 1회)
+            applyPassive(unit, 'on_get_hit', {source: 'dot', damage: totalDotDamage});
+        } else {
+            // on_death 트리거
+            unit.flags.alive = false;
+            applyPassive(unit, 'on_death', {killer: 'dot'});
+        }
+    }
+    
+    // 지속시간 감소 및 만료 처리
+    const beforeStatuses = [...unit.statuses];
+    unit.statuses.forEach(s => {
+        if (s.duration > 0) s.duration--;
+    });
+    
+    // 만료된 상태 제거하고 로그
+    unit.statuses = unit.statuses.filter(s => {
+        if (s.duration === 0) {
+            // DOT 스택 감소 로그
+            if (s.tag) {
+                const remainingStacks = unit.statuses.filter(st => 
+                    st !== s && st.tag === s.tag).length;
+                if (remainingStacks > 0) {
+                    log('dot status', `${unit.name} DOT(${s.tag}) x${remainingStacks} (1스택 만료)`);
+                }
+            }
+            return false;
+        }
+        return true;
+    });
+    
+    // 쿨다운 감소
+    Object.keys(unit.cooldowns).forEach(key => {
+        if (unit.cooldowns[key] > 0) {
+            unit.cooldowns[key]--;
+        }
+    });
+}
+
+// === 유닛 변환 (덱설정 정보 포함) ===
+function toUnit(src, side) {
+    const s = src.stats || {};           // 계약상 항상 존재해야 함
+    if (!('hp' in s) || !('atk' in s)) { // 방어적 로그(개발 중 확인용)
+        console.error('[BATTLE] invalid stats payload for', src.slug, s);
+    }
+    
+    // slug 파싱 (a_sc -> {base: 'a', suf: 'sc', rarity: 'super-common'})
+    const parsed = window.parseSlug ? window.parseSlug(src.slug) : { base: src.slug, suf: null, rarity: null };
+    const baseSlug = parsed.base || src.slug;
+    const rarity = parsed.rarity || src.rarity || 'common';
+    
+    // card_master 데이터 확인 (캐시 우선, 없으면 src.card_master)
+    let cm = src.card_master || {};
+    
+    // CardUtils 캐시에서 찾기
+    if (window.CardUtils && window.CardUtils.masterByBase && window.CardUtils.masterByBase[baseSlug]) {
+        cm = window.CardUtils.masterByBase[baseSlug];
+    }
+    
+    // base_stats에서 affinity 추출
+    const affinity = cm.base_stats?.affinity || '';
+    
+    const u = {
+        slug: src.slug,
+        name: src.name || cm.name || baseSlug,
+        portrait_url: src.portrait_url || cm.portrait_url,
+        maxHP: s.HP || s.hp || 1000,
+        atk: s.ATK || s.atk || 100,
+        def: s.DEF || s.def || 50,
+        spd: s.SPD || s.spd || 100,
+        acc: s.acc || 0,
+        res: s.res || 0,
+        hp: 0,
+        turnMeter: 0,
+        cooldowns: {},
+        statuses: [],
+        skills: normalizeSkills(src.skills || cm.skills),
+        flags: { 
+            firstHitDone: false, 
+            alive: true, 
+            team: side 
+        },
+        // 파싱된 희귀도와 card_master에서 가져온 직업 정보
+        rarity: rarity,
+        main_job: cm.main_job || src.main_job || '',
+        sub_job: cm.sub_job || src.sub_job || '',
+        affinity: affinity,
+        card_master: cm
+    };
+    u.hp = u.maxHP;
+    
+    // 스킬 쿨다운 초기화
+    if (u.skills.active) {
+        u.cooldowns.active = 0;
+    }
+    
+    console.log(`[toUnit] ${u.name}: rarity=${u.rarity}, job=${u.main_job}/${u.sub_job}, affinity=${u.affinity}`);
+    
+    return u;
+}
+
+function normalizeSkills(sk) {
+    const a = sk?.active || {};
+    const p = sk?.passive || {};
+    return {
+        active: {
+            key: 'active',
+            name: a.name || '액티브',
+            category: a.category || 'Default',
+            cooldown: Number(a.cooldown || 3),
+            prob: a.prob || 1.0,
+            target: a.target || 'single',
+            effects: a.effects || [],
+            hits: a.hits || 1
+        },
+        passive: {
+            name: p.name || '패시브',
+            trigger: p.trigger || null,
+            effects: p.effects || []
+        }
+    };
+}
+
+// === 렌더링 (5v5 GPT 프로토타입 구조 적용) ===
+function renderTeams() {
+    // 기존 카드 제거
+    document.querySelectorAll('.card-slot').forEach(slot => {
+        slot.innerHTML = '';
+        slot.classList.remove('filled');
+    });
+    
+    // 플레이어 팀 (하단)
+    const playerSlots = document.querySelectorAll('#playerTeam .card-slot');
+    state.teams.A.forEach((unit, index) => {
+        if (index < 5 && playerSlots[index]) {
+            const card = unitCard(unit);
+            playerSlots[index].appendChild(card);
+            playerSlots[index].classList.add('filled');
+        }
+    });
+    
+    // 상대 팀 (상단)
+    const opponentSlots = document.querySelectorAll('#opponentTeam .card-slot');
+    state.teams.B.forEach((unit, index) => {
+        if (index < 5 && opponentSlots[index]) {
+            const card = unitCard(unit);
+            opponentSlots[index].appendChild(card);
+            opponentSlots[index].classList.add('filled');
+        }
+    });
+}
+
+function unitCard(u) {
+    const el = document.createElement('div');
+    el.className = 'unit-card';
+    el.style.cssText = 'width:100%;height:100%;background:#2a2d3a;border- radius:10px;padding:8px;';
+    
+    // 카드 마스터 데이터 추출 - 없어도 유닛 자체 데이터 사용
+    const cm = u.card_master || {};
+    const affinity = u.affinity || ''; // 유닛에서 직접 가져오기
+    
+    // 직업 정보 - 유닛에서 직접 가져오기
+    const mainJob = u.main_job || '';
+    const subJob = u.sub_job || '';
+    
+    // 희귀도 - 유닛에서 직접 가져오기
+    const rarity = u.rarity || 'common';
+    
+// 이미지 플백 적용
+    const portraits = cm.portrait_url || u.portrait_url || {};
+    const rarityKey = u.rarity || 'common';
+    const p = (typeof portraits === 'string') ? portraits : (portraits[rarityKey] || portraits.common || '');
+    const imgSrc = p.trim() || window.FALLBACK_IMG;
+    
+    // 체력 퍼센트 계산
+    const hpPercent = Math.max(0, Math.round(100 * u.hp / u.maxHP));
+    
+    // 체력바 색상 결정
+    let hpBarColor = '#22c55e'; // 녹색 (기본)
+    if (hpPercent <= 30) {
+        hpBarColor = '#ef4444'; // 빨강
+    } else if (hpPercent <= 60) {
+        hpBarColor = '#f97316'; // 주황
+    }
+    
+    // 스킬 정보 추출
+    const activeSkill = u.skills?.active || {};
+    const passiveSkill = u.skills?.passive || {};
+    
+    // 컬렉션 카드 스타일로 변경 (체력바 포함)
+    // 스탯은 u의 실제 값 사용 (이미 희귀도 반영된 값)
+    el.innerHTML = `
+        <div style="width:100%;aspect-ratio:2/3;overflow:hidden;border-radius:8px;margin-bottom:6px;background:#f0f0f0;position:relative;">
+            ${window.renderCardMedia(imgSrc, u.name)}
+            
+            <!-- 체력바 컨테이너 - 이미지 하단에 오버레이 -->
+            <div class="hp-bar-container" style="
+                position: absolute; 
+                bottom: 0; 
+                left: 0; 
+                right: 0; 
+                height: 20px; 
+                background: rgba(0,0,0,0.7); 
+                display: flex; 
+                align-items: center;
+            ">
+                <!-- 체력바 -->
+                <div class="hp-bar-fill" style="
+                    height: 100%; 
+                    width: ${hpPercent}%; 
+                    background: ${hpBarColor}; 
+                    transition: width 0.3s ease, background 0.3s ease;
+                "></div>
+                
+                <!-- 체력 텍스트 -->
+                <div class="hp-text" style="
+                    position: absolute; 
+                    left: 50%; 
+                    top: 50%; 
+                    transform: translate(-50%, -50%); 
+                    color: white; 
+                    font-size: 11px; 
+                    font-weight: bold; 
+                    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+                    pointer-events: none;
+                ">${u.hp}/${u.maxHP}</div>
+            </div>
+        </div>
+        
+        <div style="display:flex;align-items:center;margin:3px 0;">
+            <h3 style="margin:0;font-size:13px;flex:1;color:#ffffff;">${u.name}</h3>
+            <span class="rarity-badge rarity-${normRarity(rarity)}" style="margin-left:6px;font-size:10px;padding:1px 4px;">${displayRarity(rarity)}</span>
+        </div>
+        
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin:4px 0;justify-content:space-between;">
+            <div style="display:flex;flex-wrap:wrap;gap:3px;">
+                ${mainJob ? `
+                    <span style="display:inline-block;padding:1px 5px;background:var(--role-${mainJob?.toLowerCase() === '딜러' ? 'dealer' : mainJob?.toLowerCase() === '탱커' ? 'tank' : mainJob?.toLowerCase() === '브루저' ? 'bruiser' : mainJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:4px;font-size:9px;">
+                        ${mainJob}
+                    </span>
+                ` : ''}
+                ${subJob ? `
+                    <span style="display:inline-block;padding:1px 5px;background:var(--role-${subJob?.toLowerCase() === '딜러' ? 'dealer' : subJob?.toLowerCase() === '탱커' ? 'tank' : subJob?.toLowerCase() === '브루저' ? 'bruiser' : subJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:4px;font-size:9px;">
+                        ${subJob}
+                    </span>
+                ` : ''}
+            </div>
+            ${affinity ? `
+                <span style="display:inline-block;padding:1px 5px;background:var(--affinity-${affinity.toLowerCase()});color:white;border-radius:4px;font-size:9px;">
+                    ${affinity}
+                </span>
+            ` : ''}
+        </div>
+        
+        <div style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:3px;font-size:10px;color:#cccccc;">
+            <div>HP: ${u.maxHP}</div>
+            <div>ATK: ${u.atk}</div>
+            <div>DEF: ${u.def}</div>
+            <div>SPD: ${u.spd}</div>
+        </div>
+        
+        ${activeSkill.name ? `
+            <div style="background:rgba(0,0,0,0.3);padding:5px;border-radius:4px;margin-top:5px;">
+                <div style="font-weight:bold;color:#60a5fa;font-size:10px;margin-bottom:2px;">
+                    [액티브] ${activeSkill.name}
+                </div>
+                <div style="font-size:9px;color:#cccccc;line-height:1.2;">
+                    ${activeSkill.description || activeSkill.desc || ''}
+                </div>
+            </div>
+        ` : ''}
+        
+        ${passiveSkill.name ? `
+            <div style="background:rgba(0,0,0,0.3);padding:5px;border-radius:4px;margin-top:4px;">
+                <div style="font-weight:bold;color:#a78bfa;font-size:10px;margin-bottom:2px;">
+                    [패시브] ${passiveSkill.name}
+                </div>
+                <div style="font-size:9px;color:#cccccc;line-height:1.2;">
+                    ${passiveSkill.description || passiveSkill.desc || ''}
+                </div>
+            </div>
+        ` : ''}
+    `;
+
+ // ATB 게이지 추가
+const gauge = document.createElement('div');
+gauge.className = 'atb-gauge';
+gauge.style.setProperty('--progress', '0deg');
+el.appendChild(gauge);
+u.__gauge = gauge;
+    
+    u.__el = el;
+    return el;
+}
+
+function updateHP(u) {
+    if (!u.__el) return;
+    
+    const hpPercent = Math.max(0, Math.round(100 * u.hp / u.maxHP));
+    
+    // 체력 텍스트 업데이트
+    const hpText = u.__el.querySelector('.hp-text');
+    if (hpText) {
+        hpText.textContent = `${u.hp}/${u.maxHP}`;
+    }
+    
+    // 체력바 업데이트
+    const hpBarFill = u.__el.querySelector('.hp-bar-fill');
+    if (hpBarFill) {
+        hpBarFill.style.width = hpPercent + '%';
+        
+        // 색상 변화
+        let hpBarColor = '#22c55e'; // 녹색 (기본)
+        if (hpPercent <= 30) {
+            hpBarColor = '#ef4444'; // 빨강
+        } else if (hpPercent <= 60) {
+            hpBarColor = '#f97316'; // 주황
+        }
+        hpBarFill.style.background = hpBarColor;
+    }
+    
+    // 죽음 상태 표시
+    if (!u.flags.alive) {
+        u.__el.style.opacity = '0.4';
+        u.__el.style.filter = 'grayscale(100%)';
+    }
+}
+
+// === 패시브 트리거 처리 ===
+function applyPassive(unit, trigger, context = {}) {
+    if (!unit.skills.passive || unit.skills.passive.trigger !== trigger) return;
+    if (!unit.skills.passive.effects || unit.skills.passive.effects.length === 0) return;
+    
+    const enemies = unit.flags.team === 'A' ? state.teams.B : state.teams.A;
+    const allies = unit.flags.team === 'A' ? state.teams.A : state.teams.B;
+    
+    unit.skills.passive.effects.forEach(effect => {
+        const targets = resolveTargets(effect.target || 'self', unit, allies, enemies);
+        applyEffect(effect, unit, targets);
+    });
+    
+    log('system', `${unit.name}의 패시브 발동 (${trigger})`);
+}
+
+function applyBattleStartPassives() {
+    [...state.teams.A, ...state.teams.B].forEach(unit => {
+        applyPassive(unit, 'battle_start');
+    });
+}
+
+// === AI 스킬 선택 ===
+function chooseSkill(unit) {
+    // 스턴/빙결 상태면 스킬 사용 불가
+    if (hasStatus(unit, 'stun') || hasStatus(unit, 'freeze')) {
+        return null;
+    }
+    
+    // 액티브 스킬 사용 가능 여부 확인
+    const active = unit.skills.active;
+    if (unit.cooldowns.active > 0) {
+        return null; // 쿨다운 중
+    }
+    
+    // AI 가중치 계산
+    const category = active.category || 'Default';
+    const baseWeight = state.cfg.ai.category_weights[category] || 1;
+    
+    // 반복 패널티 적용
+    const lastUsed = state.lastSkillUsed[unit.slug] || null;
+    const repeatPenalty = (lastUsed === 'active') ? state.cfg.ai.repeat_penalty : 0;
+    
+    // 상황별 보정
+    let situationBonus = 0;
+    
+    // Heal 카테고리 세분화
+    if ((category === 'Heal' || category === 'HealSelf') && unit.hp < unit.maxHP * 0.5) {
+        situationBonus += 0.5;
+    }
+    
+    if (category === 'HealTeam') {
+        const allies = unit.flags.team === 'A' ? pickAlive(state.teams.A) : pickAlive(state.teams.B);
+        const avgHP = allies.reduce((sum, a) => sum + (a.hp / a.maxHP), 0) / allies.length;
+        if (avgHP < 0.6) situationBonus += 0.5;
+        if (allies.some(a => a.hp < a.maxHP * 0.4)) situationBonus += 0.3;
+    }
+    
+    // 적이 많으면 AoE 선호
+    const enemies = unit.flags.team === 'A' ? pickAlive(state.teams.B) : pickAlive(state.teams.A);
+    if (category === 'AoE' && enemies.length >= 3) {
+        situationBonus += 0.3;
+    }
+    
+    const finalWeight = baseWeight * (1 - repeatPenalty) + situationBonus;
+    
+    // 확률적 선택
+    if (window.RNG.nextFloat() < finalWeight) {
+        state.lastSkillUsed[unit.slug] = 'active';
+        return active;
+    }
+    
+    return null;
+}
+
+// === 턴 처리 ===
+function takeTurn(unit, enemies, allies) {
+    if (!unit.flags.alive) return;
+    
+    // 모든 current-turn 클래스 제거
+    document.querySelectorAll('.card-slot.current-turn').forEach(el => {
+        el.classList.remove('current-turn');
+    });
+    
+    // 현재 턴인 유닛의 카드에 클래스 추가
+    if (unit.__el && unit.__el.parentElement) {
+        unit.__el.parentElement.classList.add('current-turn');
+    }
+
+    // on_get_hit 트리거 초기화
+    state.triggeredOnGetHit.clear();
+    
+    state.turnCount++;
+    log('turn', `[턴 ${state.turnCount}] ${unit.name}의 차례`);
+    
+// 턴 시작시 게이지 리셋
+    unit.turnMeter = 0;
+    if (unit.__gauge) {
+        unit.__gauge.style.setProperty('--progress', '0deg');
+    }
+
+    // 턴 시작 패시브
+    applyPassive(unit, 'turn_start');
+    
+    // 스킬 선택
+    const skill = chooseSkill(unit);
+    
+    if (skill) {
+        // 액티브 스킬 사용
+        log('system', `${unit.name}이(가) ${skill.name} 사용!`);
+        
+        // 타겟 결정
+        const targets = resolveTargets(skill.target, unit, allies, enemies);
+        
+        if (targets.length > 0) {
+            // 멀티힛 처리
+            const hits = skill.hits || 1;
+            
+            if (skill.effects && skill.effects.length > 0) {
+                skill.effects.forEach(effect => {
+                    // effect.prob이 없으면 skill.prob 사용 (초기화용)
+                    if (effect.prob === undefined && skill.prob !== undefined) {
+                        effect.prob = skill.prob;
+                    }
+                    
+                    // 멀티힛 처리 분기
+                    if (hits > 1 && (effect.type === 'damage' || effect.kind === 'damage' || 
+                                     effect.type === 'dot' || effect.kind === 'dot')) {
+                        // 피해/DOT는 멀티힛 적용
+                        for (let hit = 0; hit < hits; hit++) {
+                            applyEffect(effect, unit, targets);
+                        }
+                        if (hits > 1) {
+                            log('system', `${hits}힛 완료`);
+                        }
+                    } else {
+                        // 버프/힐/클렌즈 등은 1회만
+                        applyEffect(effect, unit, targets);
+                    }
+                });
+            }
+            
+            // 스킬 처리 완료 후 on_get_hit 트리거 초기화
+            state.triggeredOnGetHit.clear();
+            
+            // 첫 타격 패시브
+            if (!unit.flags.firstHitDone) {
+                unit.flags.firstHitDone = true;
+                applyPassive(unit, 'on_first_hit');
+            }
+            
+            // 쿨다운 적용
+            unit.cooldowns.active = skill.cooldown;
+        }
+    } else {
+        // 기본 공격
+        const target = enemies.length > 0 ? enemies[0] : null;
+        if (target) {
+            const damage = getStat(unit, 'atk');
+            const finalDamage = Math.round(damage * (100 / (100 + getStat(target, 'def'))));
+            const beforeHP = target.hp;
+            target.hp = Math.max(0, target.hp - finalDamage);
+            log('damage', `${unit.name} → ${target.name} 기본 공격 ${finalDamage} 피해`);
+            updateHP(target);
+            
+            // 기본 공격도 패시브 트리거
+            if (finalDamage > 0 && beforeHP > 0) {
+                applyPassive(unit, 'on_hit', {target: target, damage: finalDamage});
+                
+                if (target.hp === 0) {
+                    target.flags.alive = false;
+                    applyPassive(target, 'on_death', {killer: unit});
+                } else if (!state.triggeredOnGetHit.has(target.slug)) {
+                    state.triggeredOnGetHit.add(target.slug);
+                    applyPassive(target, 'on_get_hit', {source: unit, damage: finalDamage});
+                }
+            }
+        }
+    }
+    
+    // 턴 종료 처리
+    tickStatuses_EndOfTurn(unit);
+}
+
+// === 전투 초기화 (5v5 지원) ===
+async function initBattle(payload) {
+    // 5v5 수정: partySize 적용
+    state.partySize = payload.meta?.partySize || 5;
+    
+    // 작업지시서: match_id 저장
+    state.matchId = payload.meta?.match_id || null;
+    
+    // 난수 초기화 (시드 사용)
+    const seed = payload.meta?.seed || null;
+    window.RNG.init(seed);
+    
+    // card_master 캐시 미리 로드 (base slug들 추출)
+    const allSlugs = [
+        ...(payload.teamA || payload.teams?.A || []).map(src => src.slug),
+        ...(payload.teamB || payload.teams?.B || []).map(src => src.slug)
+    ];
+    
+    const baseSlugs = allSlugs.map(slug => {
+        const parsed = window.parseSlug ? window.parseSlug(slug) : { base: slug };
+        return parsed.base;
+    }).filter((v, i, a) => a.indexOf(v) === i); // unique
+    
+    // CardUtils가 있으면 캐시 로드 시도
+    if (window.CardUtils && window.CardUtils.ensureMasterCache) {
+        try {
+            await window.CardUtils.ensureMasterCache(baseSlugs);
+            console.log('[initBattle] card_master 캐시 로드 완료:', baseSlugs);
+        } catch(e) {
+            console.warn('[initBattle] card_master 캐시 로드 실패:', e);
+        }
+    }
+    
+    // 현재 로그 필터 저장
+    const currentLogFilter = state.logFilter || 'all';
+    
+    // 상태 초기화
+    state.cfg = window.GameConfig;
+    // 5v5 수정: 배열 길이에 맞춰 팀 생성
+    state.teams.A = (payload.teamA || payload.teams?.A || []).slice(0, state.partySize).map(src => toUnit(src, 'A'));
+    state.teams.B = (payload.teamB || payload.teams?.B || []).slice(0, state.partySize).map(src => toUnit(src, 'B'));
+    state.turnCount = 0;
+    state.lastSkillUsed = {};
+    state.triggeredOnGetHit.clear();
+    
+    // 로그 필터 복원
+    state.logFilter = currentLogFilter;
+    
+    // 전투 시작 패시브 적용
+    applyBattleStartPassives();
+    
+    renderTeams();
+    log('system', `전투 준비 완료 (${state.partySize}v${state.partySize}, Seed: ${window.RNG.seed})`);
+}
+
+// === [수정] Phase 3 - 시뮬레이션 업데이트 (한 프레임당 처리 제한) ===
+function updateSimulation(deltaTime) {
+    const threshold = state.cfg.atb.threshold;
+    const baseFill = state.cfg.atb.base_fill_per_tick;
+    const spdScale = state.cfg.atb.spd_scale;
+    
+    // 동률 처리를 위한 유닛 수집
+    const readyUnits = [];
+    
+    // ATB 채우기 - 동적 길이 처리
+    for (const side of ['A', 'B']) {
+        for (const u of state.teams[side]) {
+            if (!u.flags.alive) continue;
+            
+            const spdBonus = getStat(u, 'spd') * spdScale;
+            const fillRate = (baseFill + spdBonus) * (deltaTime / state.simStep);
+            u.turnMeter += fillRate;
+           
+        // 게이지 시각화 추가
+        if (u.__gauge) {
+            const progress = (u.turnMeter / threshold) * 90;
+            u.__gauge.style.setProperty('--progress', Math.min(progress, 90) + 'deg');
+        }
+        
+        if (u.turnMeter >= threshold) {
+            readyUnits.push(u);
+        }
+    }
+}
+    
+    // 동률 처리: turnMeter 큰 순 → SPD 큰 순 → slug/인덱스 작은 순
+    if (readyUnits.length > 0) {
+        readyUnits.sort((a, b) => {
+            if (a.turnMeter !== b.turnMeter) return b.turnMeter - a.turnMeter;
+            const aSpd = getStat(a, 'spd');
+            const bSpd = getStat(b, 'spd');
+            if (aSpd !== bSpd) return bSpd - aSpd;
+            return a.slug.localeCompare(b.slug);
+        });
+        
+        // [수정] 한 프레임당 최대 처리 유닛 수 제한
+        const unitsToProcess = readyUnits.slice(0, state.maxUnitsPerFrame);
+        
+        // 정렬된 순서대로 턴 처리
+        for (const unit of unitsToProcess) {
+            unit.turnMeter = 0;
+            const side = unit.flags.team;
+            const enemies = side === 'A' ? state.teams.B : state.teams.A;
+            const allies = state.teams[side];
+            takeTurn(unit, pickAlive(enemies), pickAlive(allies));
+            
+            // 승패 체크
+            if (!pickAlive(state.teams.B).length) {
+                endBattle('A'); // 팀 A 승리
+                return false;
+            }
+            if (!pickAlive(state.teams.A).length) {
+                endBattle('B'); // 팀 B 승리
+                return false;
+            }
+        }
+    }
+    
+    return true;  // 전투 계속
+}
+
+// === 전투 시작 ===
+function startBattle() {
+    if (state.running) return;
+    
+    if (!window.__battlePayload) {
+        console.error('[BATTLE] No battle payload available!');
+        log('system', '전투 데이터가 없습니다. 전투하기를 다시 눌러주세요.');
+        return;
+    }
+    
+    // 로그 필터 저장
+    const savedLogFilter = state.logFilter || 'all';
+    
+    // 전투 시작시 닉네임 표시
+    const vsLabel = document.getElementById('vsLabel');
+    if (vsLabel && window.__battlePayload.meta) {
+        const meName = window.__battlePayload.meta.meName || 'Me';
+        const oppName = window.__battlePayload.meta.oppName || 'Opponent';
+        vsLabel.textContent = `${meName} vs ${oppName}`;
+        vsLabel.classList.remove('victory', 'defeat');
+    }
+    
+    initBattle(window.__battlePayload);
+    
+    // 로그 필터 복원
+    state.logFilter = savedLogFilter;
+    
+    state.running = true;
+    state.accumulator = 0;
+    state.lastTime = performance.now();
+    log('system', '========== 전투 시작 ==========');
+    
+    // Phase 3 - 누산기 기반 게임 루프
+    function gameLoop(currentTime) {
+        if (!state.running) return;
+        
+        const realDelta = Math.min(currentTime - state.lastTime, 100); // 최대 100ms
+        state.lastTime = currentTime;
+        
+        // 누산기에 실제 경과 시간 * 배속 추가
+        state.accumulator += realDelta * state.speed;
+        
+        // 고정 스텝으로 시뮬레이션 업데이트
+        while (state.accumulator >= state.simStep) {
+            const shouldContinue = updateSimulation(state.simStep);
+            state.accumulator -= state.simStep;
+            
+            if (!shouldContinue) {
+                state.running = false;
+                return;
+            }
+        }
+        
+        requestAnimationFrame(gameLoop);
+    }
+    
+    requestAnimationFrame(gameLoop);
+}
+// === 작업지시서: 전투 종료 및 결과 전송 ===
+function endBattle(winner) {
+    state.running = false;
+    
+    // 승자 결정
+    let winnerStr;
+    const aAlive = pickAlive(state.teams.A).length;
+    const bAlive = pickAlive(state.teams.B).length;
+    
+    // VS 라벨 업데이트
+    const vsLabel = document.getElementById('vsLabel');
+    
+    if (winner === 'A' || aAlive > 0) {
+        winnerStr = 'A';
+        log('system', `========== 플레이어 승리 ==========`);
+        if (vsLabel) {
+            vsLabel.textContent = '승리!';
+            vsLabel.classList.add('victory');
+            vsLabel.classList.remove('defeat');
+        }
+    } else if (winner === 'B' || bAlive > 0) {
+        winnerStr = 'B';
+        log('system', `========== 상대 승리 ==========`);
+        if (vsLabel) {
+            vsLabel.textContent = '패배!';
+            vsLabel.classList.add('defeat');
+            vsLabel.classList.remove('victory');
+        }
+    } else {
+        winnerStr = 'draw';
+        log('system', `========== 무승부 ==========`);
+        if (vsLabel) {
+            vsLabel.textContent = '무승부!';
+            vsLabel.classList.remove('victory', 'defeat');
+        }
+    }
+    
+    log('system', `총 ${state.turnCount}턴 진행`);
+    
+    // 작업지시서: 전투 결과를 부모(런처)에게 전송
+    if (state.matchId && window.parent !== window) {
+        window.parent.postMessage({
+            type: 'BATTLE_RESULT',
+            payload: {
+                match_id: state.matchId,
+                winner: winnerStr
+            }
+        }, '*');
+    }
+// 쿨타임 시작
+    cooldownManager.startCooldown('battle', new Date().toISOString(), 5);
+}
+
+// === 로그 필터 ===
+window.filterLogs = function(type) {
+    // 전역 변수에 직접 저장
+    GLOBAL_LOG_FILTER = type;
+    
+    const lines = document.querySelectorAll('.log-line');
+    const tabs = document.querySelectorAll('.log-filter-tab');
+    
+    tabs.forEach(tab => tab.classList.remove('active'));
+    const activeTab = [...tabs].find(t => t.textContent.includes(
+        type === 'all' ? '전체' :
+        type === 'damage' ? '피해' :
+        type === 'heal' ? '치유' :
+        type === 'buff' ? '버프' :
+        type === 'status' ? '상태' :
+        type === 'turn' ? '턴' : ''
+    ));
+    if (activeTab) activeTab.classList.add('active');
+    
+    lines.forEach(line => {
+        if (type === 'all') {
+            line.style.display = '';
+        } else {
+            line.style.display = line.classList.contains(type) ? '' : 'none';
+        }
+    });
+};
+// === 덱 관리 시스템 ===
+window.currentDeck = window.currentDeck ?? 0;
+window.playerData = window.playerData ?? { decks: [[],[],[],[]] };
+
+// 임시 덱 상태 관리
+window.tempDeckState = window.tempDeckState ?? {
+    decks: [[], [], [], []],
+    originalDecks: [[], [], [], []],
+    isDirty: [false, false, false, false]
+};
+
+// === saveDeckChanges 함수 - 실패 시 롤백 추가 ===
+async function saveDeckChanges() {
+    const idx = getDeckIdx();
+    
+    try {
+        const uid = await getUID();
+        const tempDeck = window.tempDeckState.decks[idx];
+        
+        // ⭐⭐⭐ 추가한 부분 시작 ⭐⭐⭐
+        console.log('덱 저장 데이터 확인:');
+        console.log(tempDeck);
+        // ⭐⭐⭐ 추가한 부분 끝 ⭐⭐⭐
+        
+        // null 제거하여 서버에 저장 - 전체 객체 전달
+        const cleanDeck = tempDeck.filter(x => x && x.user_card_id);        
+        console.log('[saveDeckChanges] 저장 시도:', cleanDeck);
+        
+        await saveDeckToServer(idx, cleanDeck);
+        
+        // 성공 시에만 원본 반영
+        window.playerData.decks[idx] = [...cleanDeck];
+        
+        // tempDeckState도 깨끗하게 재정렬 - card_master 정보 유지
+        const newTempDeck = new Array(10).fill(null);
+        cleanDeck.forEach((item, i) => {
+            if (i < 10) {
+                // 기존 tempDeck에서 card_master 정보 찾아서 유지
+                const originalItem = tempDeck.find(x => x && x.user_card_id === item.user_card_id);
+                newTempDeck[i] = {
+                    ...item,
+                    card_master: originalItem?.card_master || null
+                };
+            }
+        });
+        window.tempDeckState.decks[idx] = newTempDeck;
+        window.tempDeckState.originalDecks[idx] = [...cleanDeck];
+        window.tempDeckState.isDirty[idx] = false;
+        
+        refreshDeckSlots();
+        updateSaveButtonState();
+        alert('덱이 저장되었습니다.');
+        
+    } catch(error) {
+        console.error('[saveDeckChanges]', error);
+        
+        // 실패 시 롤백
+        window.tempDeckState.decks[idx] = new Array(10).fill(null);
+        window.tempDeckState.originalDecks[idx].forEach((item, i) => {
+            if (i < 10 && item) {
+                window.tempDeckState.decks[idx][i] = item;
+            }
+        });
+        window.tempDeckState.isDirty[idx] = false;
+        refreshDeckSlots();
+        updateSaveButtonState();
+        
+        alert('저장 실패. 원래 상태로 복원되었습니다.\n' + error.message);
+    }
+}
+
+// === 플레이어 이름 설정 함수 추가 ===
+function setPlayerName(name) {
+    const playerNameEl = document.getElementById('playerName');
+    if (playerNameEl) {
+        playerNameEl.textContent = name + ' 님 환영합니다.';
+    }
+}
+
+// === 닉네임 관리 함수들 추가 ===
+async function loadPlayerName() {
+    try {
+        const uid = await getUID();
+        const { data: profile, error } = await sb
+            .from('user_profiles')
+            .select('display_name')
+            .eq('user_id', uid)
+            .maybeSingle();
+        
+        if (error) throw error;
+        
+        const displayName = profile?.display_name || '플레이어';
+        setPlayerName(displayName);  // 이제 정의되어 있으므로 오류 없음
+        return displayName;
+    } catch(e) {
+        console.warn('[loadPlayerName]', e.message);
+        setPlayerName('플레이어');
+        return '플레이어';
+    }
+}
+
+// === 닉네임 관리 함수들 추가 ===
+async function loadPlayerName() {
+    try {
+        const uid = await getUID();
+        const { data: profile, error } = await sb
+            .from('user_profiles')
+            .select('display_name')
+            .eq('user_id', uid)
+            .maybeSingle();
+        
+        if (error) throw error;
+        
+        const displayName = profile?.display_name || '플레이어';
+        setPlayerName(displayName);
+        return displayName;
+    } catch(e) {
+        console.warn('[loadPlayerName]', e.message);
+        setPlayerName('플레이어');
+        return '플레이어';
+    }
+}
+
+// === 첫 로그인 보상 체크 함수 ===
+async function checkFirstLoginReward() {
+    try {
+        console.log('[첫 로그인 체크] 시작');
+        
+        // 임베디드 모드가 아니면 실행 안함
+        if (!EMBEDDED) {
+            console.log('[첫 로그인 체크] 임베디드 아님');
+            return;
+        }
+        
+        // Supabase 클라이언트 가져오기
+        const sb = window.parent.__sb_singleton;
+        if (!sb) {
+            console.log('[첫 로그인 체크] sb 없음');
+            return;
+        }
+        
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session?.user?.id) {
+            console.log('[첫 로그인 체크] 세션 없음');
+            return;
+        }
+        
+        console.log('[첫 로그인 체크] 유저 ID:', session.user.id);
+        
+        // first_login_rewarded 체크
+        const { data: profile } = await sb
+            .from('user_profiles')
+            .select('first_login_rewarded')
+            .eq('user_id', session.user.id)
+            .single();
+        
+        console.log('[첫 로그인 체크] 프로필:', profile);
+        
+        // 이미 보상 받았으면 리턴
+        if (profile?.first_login_rewarded === true) {
+            console.log('[첫 로그인 체크] 이미 받음');
+            return;
+        }
+        
+        console.log('[첫 로그인 체크] 보상 모달 표시');
+        // 아직 안받았으면 보상 프로세스 시작
+        showFirstLoginRewardModal();
+        
+    } catch (error) {
+        console.error('[FirstLoginReward] Check failed:', error);
+    }
+}
+async function savePlayerName(newName) {
+    try {
+        const uid = await getUID();
+        const payload = {
+            user_id: uid,
+            display_name: newName.trim(),
+            updated_at: new Date().toISOString()
+        };
+        
+        const { error } = await sb
+            .from('user_profiles')
+            .upsert(payload, { onConflict: 'user_id' });
+            
+        if (error) throw error;
+        
+        console.log('[savePlayerName] 닉네임 저장 완료:', newName.trim());
+        
+      
+        
+        return true;
+    } catch(e) {
+        console.error('[savePlayerName]', e);
+        alert('닉네임 저장 실패: ' + e.message);
+        return false;
+    }
+}
+
+// === 쿨타임 정보 가져오기 함수 ===
+async function getCooldownInfo() {
+    try {
+        const uid = await getUID();
+        const { data: profile, error } = await sb
+            .from('user_profiles')
+            .select('last_match_at, last_draw_time')  // 실제 전투완료와 가차 컬럼
+            .eq('user_id', uid)
+            .maybeSingle();
+        
+        if (error) throw error;
+        return profile;
+    } catch(e) {
+        console.warn('[getCooldownInfo]', e);
+        return null;
+    }
+}
+
+// === 저장 버튼 상태 업데이트 ===
+function updateSaveButtonState() {
+    const idx = getDeckIdx();
+    const saveBtn = document.getElementById('btnSaveDeck');
+    if (saveBtn) {
+        saveBtn.disabled = !window.tempDeckState.isDirty[idx];
+    }
+}
+// 임베디드 모드 감지
+const EMBEDDED = window.parent && window.parent !== window;
+
+// 헬퍼 함수들
+const getDecks = () => {
+    if (!window.playerData) window.playerData = {};
+    if (!Array.isArray(window.playerData.decks)) window.playerData.decks = [[],[],[],[]];
+    return window.playerData.decks;
+};
+const getDeckIdx = () => Number(window.currentDeck) || 0;
+
+// Supabase 클라이언트 (부모 런처에서 재사용)
+let sb = null;
+try { 
+    sb = window.parent && window.parent.__sb_singleton ? window.parent.__sb_singleton : null; 
+} catch(e) { 
+    sb = null; 
+}
+
+async function getUID() {
+    if (!sb) throw new Error('Supabase client missing (parent launcher required).');
+    const { data: { session } } = await sb.auth.getSession();
+    const uid = session?.user?.id;
+    if (!uid) throw new Error('로그인이 필요합니다.');
+    return uid;
+}
+
+// 디바운스 유틸리티
+const debounce = (fn, ms = 600) => {
+    let t;
+    return (...a) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...a), ms);
+    };
+};
+
+// 덱 데이터 로드 함수 추가
+window.loadDeckFromServer = async function() {
+    try {
+        const uid = await getUID();
+        
+        // 모든 덱 로드
+        const { data: decks, error } = await sb
+            .from('user_decks')
+            .select('deck_index, deck_slot, user_card_id, card_slug')
+            .eq('user_id', uid)
+            .order('deck_index')
+            .order('deck_slot');
+            
+        if (error) throw error;
+        
+        // 초기화
+        window.playerData = window.playerData || { decks: [[],[],[],[]] };
+        
+        if (decks && decks.length > 0) {
+            // user_card_ids 수집
+            const userCardIds = [...new Set(decks.map(d => d.user_card_id))];
+            
+            // user_cards 정보 가져오기 - 여기서 정확한 희귀도 정보 확보
+            const { data: userCards, error: ucErr } = await sb
+                .from('user_cards')
+                .select('id, card_slug, rarity')
+                .in('id', userCardIds);
+                
+            if (ucErr) throw ucErr;
+            
+           // card_slugs 수집 (base slug만)
+            const slugs = [...new Set(userCards.map(uc => uc.card_slug))];
+            
+            // ** 수정: allUserCards에서 card_master 정보 재활용 **
+            const userCardMap = {};
+            const masterMap = {};
+            
+            // 보유카드 정보가 있으면 활용
+            if (window.allUserCards && window.allUserCards.length > 0) {
+                window.allUserCards.forEach(uc => {
+                    userCardMap[uc.id] = uc; // 완전한 card_master 정보 포함
+                });
+                console.log('[loadDeck] 보유카드 정보 재활용:', Object.keys(userCardMap).length, '개');
+            } else {
+                // 보유카드 정보가 없으면 기존 방식으로 card_master 조회
+                const baseSlugs = slugs.map(s => s.split('_')[0]);
+                const { data: masters, error: cmErr } = await sb
+                    .from('card_master')
+                    .select('slug, name, portrait_url, base_stats, skills, main_job, sub_job')
+                    .in('slug', baseSlugs);
+                    
+                if (cmErr) throw cmErr;
+                
+                (masters || []).forEach(m => {
+                    masterMap[m.slug] = m;
+                    slugs.forEach(fullSlug => {
+                        if (fullSlug.startsWith(m.slug + '_')) {
+                            masterMap[fullSlug] = m;
+                        }
+                    });
+                });
+                
+                // userCardMap 생성
+                userCards.forEach(uc => {
+                    const master = masterMap[uc.card_slug] || masterMap[uc.card_slug.split('_')[0]];
+                    userCardMap[uc.id] = {
+                        ...uc,
+                        card_master: master || {
+                            slug: uc.card_slug,
+                            name: uc.card_slug,
+                            portrait_url: null,
+                            base_stats: {hp: 1000, atk: 100, def: 50, spd: 100},
+                            skills: {},
+                            main_job: 'Unknown',
+                            sub_job: null
+                        }
+                    };
+                });
+            }
+            
+            // 덱 재구성 - deck_slot 순서 보장
+            for (let i = 0; i < 4; i++) {
+                window.playerData.decks[i] = [];
+            }
+            
+           decks.forEach(d => {
+    const userCard = userCardMap[d.user_card_id];
+    if (userCard) {
+        const parts = d.card_slug.split('_');
+        const baseSlug = parts[0];
+        const rarityCode = parts[1];
+        
+        const rarityMap = {
+            'c': 'common',
+            'r': 'rare',
+            'ur': 'ultra-rare',
+            'e': 'epic',
+            'g': 'gold',
+            'sc': 'super_common'
+        };
+        
+        // userCard에서 완전한 정보 활용
+        const master = userCard.card_master || {
+            slug: baseSlug,
+            name: baseSlug,
+            portrait_url: null,
+            base_stats: {hp: 1000, atk: 100, def: 50, spd: 100},
+            skills: {},
+            main_job: 'Unknown',
+            sub_job: null
+        };
+        
+        window.playerData.decks[d.deck_index][d.deck_slot] = {
+            user_card_id: d.user_card_id,
+            card_slug: baseSlug,
+            rarity: rarityMap[rarityCode] || 'common',
+            card_master: master
+        };
+    }
+});        }
+        
+        console.log('[loadDeck] 덱 로드 완료');
+        
+    } catch(e) {
+        console.error('[loadDeck]', e);
+    }
+};
+
+// === 대표덱 저장/복원 ===
+window.setMainDeck = async function() {
+    try {
+        const uid = await getUID();
+        const idx = getDeckIdx();
+        const payload = { 
+            user_id: uid, 
+            main_deck_index: idx, 
+            updated_at: new Date().toISOString() 
+        };
+        const { error } = await sb.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
+        if (error) throw error;
+
+        // UI 별표 토글
+        document.querySelectorAll('.deck-tab').forEach((t, i) => 
+            t.classList.toggle('main-deck', i === idx)
+        );
+        console.log(`덱 ${idx + 1}이 대표 덱으로 설정되었습니다.`);
+    } catch(e) {
+        console.error('[setMainDeck]', e);
+        alert('대표덱 저장 실패: ' + e.message);
+    }
+};
+
+async function restoreMainDeckStar() {
+    try {
+        const uid = await getUID();
+        const { data: prof, error } = await sb
+            .from('user_profiles')
+            .select('main_deck_index')
+            .eq('user_id', uid)
+            .maybeSingle();
+        if (error) throw error;
+        
+        const mdi = Number(prof?.main_deck_index);
+        document.querySelectorAll('.deck-tab').forEach((t, i) => 
+            t.classList.toggle('main-deck', i === mdi)
+        );
+    } catch(e) {
+        console.warn('[restoreMainDeckStar]', e.message);
+    }
+}
+
+// === 덱 저장/로드 (RLS 준수) ===
+async function saveDeckToServer(idx, deckData) {
+    const uid = await getUID();
+    
+    // 디버깅 추가
+    console.log('[saveDeck] 받은 데이터:', deckData);
+    
+    // 1) 기존 덱 삭제 (user_id, deck_index 조건)
+    const { error: delErr } = await sb.from('user_decks')
+        .delete()
+        .eq('user_id', uid)
+        .eq('deck_index', idx);
+    if (delErr) throw delErr;
+
+    // 2) 새 덱 삽입 - null 제거하고 유효한 카드만
+    const validCards = (deckData || [])
+        .filter(item => item && item.user_card_id && item.card_slug)
+        .slice(0, 10);
+    
+    if (validCards.length > 0) {
+        // 희귀도 코드 변환 맵
+       const rarityToCode = {
+    'common': 'c',
+    'rare': 'r',
+    'ultra-rare': 'ur',
+    'ultra_rare': 'ur',  // 추가
+    'epic': 'e',
+    'gold': 'g',
+    'super-common': 'sc',
+    'super_common': 'sc'  // 추가
+};
+        
+        const rows = validCards.map((item, i) => {
+            // 디버깅: 각 단계 값 확인
+            console.log(`[카드 ${i}]`, {
+                card_slug: item.card_slug,
+                rarity: item.rarity,
+                normalized: normRarity(item.rarity || 'common'),
+                rarityCode: rarityToCode[normRarity(item.rarity || 'common')]
+            });
+            
+            // 희귀도를 정규화하고 코드로 변환
+            const normalizedRarity = normRarity(item.rarity || 'common');
+            const rarityCode = rarityToCode[normalizedRarity] || 'c';
+            // card_slug 추출 (card_master가 있으면 그것을 사용)
+            const baseSlug = item.card_slug || item.card_master?.slug || '';
+            
+console.log('테스트:', baseSlug, '+', rarityCode, '=', `${baseSlug}_${rarityCode}`);
+
+
+            return {
+                user_id: uid,
+                deck_index: idx,
+                deck_slot: i,
+                user_card_id: item.user_card_id,  // 메인 키
+                card_slug: `${baseSlug}_${rarityCode}`  // "a_sc" 형태로 저장
+            };
+        });
+        
+        console.log(`[saveDeck] 최종 저장 데이터:`, rows);
+        
+        const { error: insErr } = await sb.from('user_decks').insert(rows);
+        if (insErr) throw insErr;
+    }
+    console.log(`[saveDeck] 덱 ${idx} 저장 완료 (${validCards.length}장)`);
+}
+
+// 오프라인 폴백을 위한 localStorage 키
+function lsKey(uid, idx) { 
+    return `deck_${uid}_${idx}`; 
+}
+
+// 오프라인 동안 저장된 덱 동기화
+async function syncLocalPending() {
+    try {
+        const uid = await getUID();
+        for (let i = 0; i < 4; i++) {
+            const v = localStorage.getItem(lsKey(uid, i));
+            if (!v) continue;
+            const arr = JSON.parse(v) || [];
+            await saveDeckToServer(i, arr);
+            localStorage.removeItem(lsKey(uid, i));
+            console.log(`[sync] 오프라인 덱 ${i} 동기화 완료`);
+        }
+    } catch(e) {
+        console.warn('[sync] 오프라인 동기화 실패:', e.message);
+    }
+}
+
+// === 토큰 가드를 위한 전역 카운터 ===
+let ownedLoadToken = 0;
+
+// === 스켈레톤 UI 표시 함수 ===
+function showOwnedSkeleton() {
+    const list = document.getElementById('ownedList');
+    if (!list) return;
+    
+    const skeletonHTML = `
+        <div class="card-mini" style="opacity:0.6;">
+            <div class="thumb" style="background:#0a0f22;border:2px solid #1a1f3a;"></div>
+            <div style="height:14px;background:#2a3352;margin-top:6px;border-radius:3px;width:80%;"></div>
+            <div style="height:10px;background:#22285a;margin-top:4px;border-radius:3px;width:50%;"></div>
+            <div style="height:10px;background:#22285a;margin-top:3px;border-radius:3px;width:65%;"></div>
+            <div style="height:10px;background:#22285a;margin-top:3px;border-radius:3px;width:40%;"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-top:4px;">
+                <div style="height:8px;background:#1a1f3a;border-radius:2px;"></div>
+                <div style="height:8px;background:#1a1f3a;border-radius:2px;"></div>
+                <div style="height:8px;background:#1a1f3a;border-radius:2px;"></div>
+                <div style="height:8px;background:#1a1f3a;border-radius:2px;"></div>
+            </div>
+        </div>
+    `;
+    
+    list.innerHTML = skeletonHTML.repeat(9);
+}
+
+// === 개선된 보유 카드 로딩 (원샷 렌더링 + 토큰 가드 + 재시도) ===
+async function loadOwnedFromServer(retryCount = 0) {
+    const list = document.getElementById('ownedList');
+    if (!list) return;
+    
+    // 토큰 가드 - 최신 요청만 처리
+    const currentToken = ++ownedLoadToken;
+    
+    // 첫 진입 감지
+    const isFirstLoad = !list.children.length || 
+                        list.querySelector('.card-mini[style*="opacity:0.6"]'); // 스켈레톤이 있으면 첫 진입
+    
+    // 첫 진입 시 스켈레톤 표시
+    if (isFirstLoad && retryCount === 0) {
+        showOwnedSkeleton();
+    }
+    
+    try {
+        const uid = await getUID();
+        
+        // 토큰 체크 - 오래된 요청이면 중단
+        if (currentToken !== ownedLoadToken) return;
+        
+        // user_cards 가져오기
+        const { data: userCards, error } = await sb
+            .from('user_cards')
+            .select('id, card_slug, rarity, obtained_at')
+            .eq('user_id', uid)
+            .order('obtained_at', { ascending: false });
+            
+        if (error) throw error;
+        
+        // 토큰 체크
+        if (currentToken !== ownedLoadToken) return;
+        
+        if (!userCards || !userCards.length) {
+            console.log('[loadOwned] 보유 카드 없음');
+            list.innerHTML = '<div style="text-align:center;padding:40px;color:#666;">보유 카드가 없습니다.</div>';
+            return;
+        }
+        
+        // card_slug 목록 추출
+        const slugs = [...new Set(userCards.map(uc => uc.card_slug))];
+        
+        // card_master 정보 가져오기
+        const { data: masters, error: e2 } = await sb
+            .from('card_master')
+            .select('slug, name, portrait_url, base_stats, skills, main_job, sub_job')
+            .in('slug', slugs);
+            
+        if (e2) throw e2;
+        
+        // 토큰 체크
+        if (currentToken !== ownedLoadToken) return;
+        
+        // 마스터 데이터 맵 생성
+        const masterMap = {};
+        (masters || []).forEach(m => {
+            masterMap[m.slug] = m;
+        });
+        
+        // 커버리지 계산 (매칭 성공률)
+        const coverage = Object.keys(masterMap).length / slugs.length;
+        console.log(`[loadOwned] Coverage: ${Math.round(coverage * 100)}% (${Object.keys(masterMap).length}/${slugs.length})`);
+        
+        // user_cards와 card_master 합치기 - 데이터 없어도 진행
+        const enrichedCards = userCards.map(uc => ({
+            id: uc.id,
+            card_slug: uc.card_slug,  // 추가: card_slug 필드 보장
+            rarity: uc.rarity,
+            obtained_at: uc.obtained_at,
+            card_master: masterMap[uc.card_slug] || {
+                slug: uc.card_slug,
+                name: uc.card_slug || 'Unknown',
+                portrait_url: null,
+                base_stats: {hp: 1000, atk: 100, def: 50, spd: 100},
+                skills: {},
+                main_job: 'Unknown',
+                sub_job: null
+            }
+        }));
+        
+        // 정렬 (희귀도 → 이름)
+        enrichedCards.sort((a, b) => {
+            // 희귀도 정렬
+            const aIdx = RARITY_ORDER.indexOf(normRarity(a.rarity));
+            const bIdx = RARITY_ORDER.indexOf(normRarity(b.rarity));
+            const ordA = aIdx === -1 ? 999 : aIdx;
+            const ordB = bIdx === -1 ? 999 : bIdx;
+            if (ordA !== ordB) return ordA - ordB;
+            
+            // 같은 희귀도면 이름순
+            return a.card_master.name.localeCompare(b.card_master.name, 'ko');
+        });
+        
+        // 검증 로그
+        console.log('[loadOwned] uc:', userCards.length, 'master:', Object.keys(masterMap).length, 'join:', enrichedCards.length);
+        
+        // 토큰 최종 체크
+        if (currentToken !== ownedLoadToken) return;
+        
+        // 원샷 렌더링 - 한 번에 교체
+        renderOwnedCards(enrichedCards);
+window.allUserCards = enrichedCards;
+        console.log(`[loadOwned] ${enrichedCards.length}장 로드 완료 (원샷 렌더)`);
+        
+    } catch(e) {
+        console.error('[loadOwned]', e);
+        
+        // 에러 시에도 기본 UI 표시
+        if (currentToken === ownedLoadToken) {
+            list.innerHTML = '<div style="text-align:center;padding:40px;color:#ff6b6b;">카드 로드 실패<br><button onclick="loadOwnedFromServer()" style="margin-top:10px;padding:8px 16px;background:#667eea;color:white;border:none;border-radius:5px;cursor:pointer;">다시 시도</button></div>';
+        }
+    }
+}
+
+// === 개선된 보유 카드 렌더링 (상세 정보 포함) ===
+function renderOwnedCards(userCards) {
+    const list = document.getElementById('ownedList');
+    if (!list) return;
+    
+    // 한 번에 전체 교체 (원샷)
+    list.innerHTML = '';
+    
+    userCards.forEach(uc => {
+        if (!uc.card_master) return;
+        
+        const cm = uc.card_master;
+        
+        // 희귀도 보정된 스탯 계산 - 확실히 적용
+        const baseStats = cm.base_stats || {hp: 1000, atk: 100, def: 50, spd: 100};
+        const appliedStats = applyRarity(baseStats, uc.rarity);
+        const affinity = (baseStats.affinity || '').toString();
+        
+        const tile = document.createElement('div');
+        tile.className = `card-mini ${normRarity(uc.rarity)}`;
+        
+        // user_card_id와 관련 데이터 심기
+        tile.dataset.userCardId = uc.id;
+        tile.dataset.slug = cm.slug;
+        tile.dataset.rarity = uc.rarity;
+        
+        // GPT 수정사항 1: 빈 문자열 방어 적용
+        const portraits = cm.portrait_url || {};
+        const rarityKey = uc.rarity || 'common';
+        const p = (typeof portraits === 'string') ? portraits : (portraits[rarityKey] || portraits.common || '');
+        const imgSrc = p.trim() || window.FALLBACK_IMG;;
+        
+        // 상세 정보 포함된 타일 - 희귀도 보정 스탯 확실히 표시
+        tile.innerHTML = `
+            <div class="thumb" style="border-radius:8px;overflow:hidden;background:#0a0f22;border:2px solid #2a3352;aspect-ratio:2/3;">
+                ${window.renderCardMedia(imgSrc, cm.name).replace('<img ', '<img class="card-thumb-img" ').replace('<video ', '<video class="card-thumb-img" ')}
+            </div>
+            <div style="margin-top:6px;font-weight:800;color:#e9ecff;font-size:12px">${cm.name}</div>
+            <div style="font-size:10px;opacity:.8">${displayRarity(uc.rarity)}</div>
+            <div style="font-size:10px;opacity:.7;color:#bb86fc;">
+                ${(cm.main_job||'')}${cm.main_job && cm.sub_job ? ' / ' : ''}${cm.sub_job||''}
+            </div>
+            <div style="font-size:10px;opacity:.7;color:#f59e0b;">${affinity}</div>
+            <div style="font-size:10px;margin-top:4px;display:grid;grid-template-columns:repeat(2,1fr);gap:2px;color:#ccc;">
+                <div>HP ${appliedStats.hp || 0}</div>
+                <div>ATK ${appliedStats.atk || 0}</div>
+                <div>DEF ${appliedStats.def || 0}</div>
+                <div>SPD ${appliedStats.spd || 0}</div>
+            </div>
+        `;
+        
+        // 클릭 시 상세 정보 표시 - 완전한 userCard 객체 전달
+        tile.addEventListener('click', () => {
+            // card_master가 없어도 기본값으로 보완
+            const completeUserCard = {
+                id: uc.id,
+                card_slug: cm.slug || uc.card_slug,
+                rarity: uc.rarity,
+                card_master: cm
+            };
+            selectCardForDetail(completeUserCard);
+        });
+        list.appendChild(tile);
+    });
+    
+    // 빈 리스트 방어 (예상치 못한 상황)
+    if (list.children.length === 0 && userCards.length > 0) {
+        console.warn('[renderOwnedCards] 렌더링 실패 - 재시도');
+        setTimeout(() => loadOwnedFromServer(), 200);
+    }
+}
+
+// ===== 덱 화면 필수 4종 셋 (스크립트 태그 절대 넣지 말 것) =====
+
+// 컬렉션 데이터 로드 함수 추가
+window.allCards = [];
+window.filteredCards = [];
+
+window.loadCollectionFromServer = async function() {
+    try {
+        const uid = await getUID();
+        
+        // user_cards 가져오기
+        const { data: userCards, error } = await sb
+            .from('user_cards')
+            .select('id, card_slug, rarity, obtained_at')
+            .eq('user_id', uid)
+            .order('obtained_at', { ascending: false });
+            
+        if (error) throw error;
+        
+        if (!userCards || !userCards.length) {
+            console.log('[loadCollection] 보유 카드 없음');
+            return [];
+        }
+        
+        // card_slug 목록 추출
+        const slugs = [...new Set(userCards.map(uc => uc.card_slug))];
+        
+        // card_master 정보 가져오기
+        const { data: masters, error: e2 } = await sb
+            .from('card_master')
+            .select('slug, name, portrait_url, base_stats, skills, main_job, sub_job')
+            .in('slug', slugs);
+            
+        if (e2) throw e2;
+        
+        // 마스터 데이터 맵 생성
+        const masterMap = {};
+        (masters || []).forEach(m => {
+            masterMap[m.slug] = m;
+        });
+        
+        // user_cards와 card_master 합치기
+        const enrichedCards = userCards.map(uc => ({
+            id: uc.id,
+            card_slug: uc.card_slug,
+            rarity: uc.rarity,
+            obtained_at: uc.obtained_at,
+            card_master: masterMap[uc.card_slug] || {
+                slug: uc.card_slug,
+                name: uc.card_slug || 'Unknown',
+                portrait_url: null,
+                base_stats: {hp: 1000, atk: 100, def: 50, spd: 100},
+                skills: {},
+                main_job: 'Unknown',
+                sub_job: null
+            }
+        }));
+        
+        console.log(`[loadCollection] ${enrichedCards.length}장 로드 완료`);
+        return enrichedCards;
+        
+    } catch(e) {
+        console.error('[loadCollection]', e);
+        return [];
+    }
+};
+
+// 컬렉션 렌더링 함수
+window.renderCollection = function(cards) {
+    const host = document.getElementById('cardCollection');
+    if (!host) return;
+    
+    if (!cards || cards.length === 0) {
+        host.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">보유한 카드가 없습니다.</div>';
+        return;
+    }
+    
+    host.innerHTML = '';
+    
+    cards.forEach(card => {
+        const cm = card.card_master;
+        const baseStats = cm?.base_stats || {hp: 1000, atk: 100, def: 50, spd: 100};
+        const appliedStats = applyRarity(baseStats, card.rarity);
+        const mainJob = cm?.main_job || '';
+        const subJob = cm?.sub_job || '';
+        const affinity = baseStats?.affinity || '';
+        // GPT 수정사항 1: 빈 문자열 방어
+        const portraits = cm?.portrait_url || {};
+        const rarityKey = card.rarity || 'common';
+        const p = (typeof portraits === 'string') ? portraits : (portraits[rarityKey] || portraits.common || '');
+        const imgSrc = p.trim() || window.FALLBACK_IMG;
+        
+        const cardEl = document.createElement('div');
+        cardEl.className = `card ${normRarity(card.rarity)}`;
+        cardEl.style.background = '#2a2d3a';
+        cardEl.innerHTML = `
+            <div style="width:100%;aspect-ratio:2/3;overflow:hidden;border-radius:8px;margin-bottom:10px;background:#f0f0f0;">
+                ${window.renderCardMedia(imgSrc, cm.name)}
+            </div>
+            
+            <div style="display:flex;align-items:center;margin:5px 0;">
+                <h3 style="margin:0;font-size:16px;flex:1;color:#ffffff;">${cm.name}</h3>
+                <span class="rarity-badge rarity-${normRarity(card.rarity)}" style="margin-left:8px;">${displayRarity(card.rarity)}</span>
+            </div>
+            
+            <div style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0;justify-content:space-between;">
+                <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                    ${mainJob ? `
+                        <span style="display:inline-block;padding:2px 8px;background:var(--role-${mainJob?.toLowerCase() === '딜러' ? 'dealer' : mainJob?.toLowerCase() === '탱커' ? 'tank' : mainJob?.toLowerCase() === '브루저' ? 'bruiser' : mainJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:6px;font-size:12px;">
+                            ${mainJob}
+                        </span>
+                    ` : ''}
+                    ${subJob ? `
+                        <span style="display:inline-block;padding:2px 8px;background:var(--role-${subJob?.toLowerCase() === '딜러' ? 'dealer' : subJob?.toLowerCase() === '탱커' ? 'tank' : subJob?.toLowerCase() === '브루저' ? 'bruiser' : subJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:6px;font-size:12px;">
+                            ${subJob}
+                        </span>
+                    ` : ''}
+                </div>
+                ${affinity ? `
+                    <span style="display:inline-block;padding:2px 8px;background:var(--affinity-${affinity.toLowerCase()});color:white;border-radius:6px;font-size:12px;">
+                        ${affinity}
+                    </span>
+                ` : ''}
+            </div>
+            
+           <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:12px;color:#cccccc;">
+                <div>HP: ${appliedStats.hp}</div>
+                <div>ATK: ${appliedStats.atk}</div>
+                <div>DEF: ${appliedStats.def}</div>
+                <div>SPD: ${appliedStats.spd}</div>
+            </div>
+            
+            ${card.card_master?.skills?.active?.name ? `
+                <div style="background:rgba(0,0,0,0.3);padding:8px;border-radius:6px;margin-top:8px;">
+                    <div style="font-weight:bold;color:#60a5fa;font-size:12px;margin-bottom:3px;">
+                        액티브: ${card.card_master.skills.active.name}
+                    </div>
+                    <div style="font-size:11px;color:#cccccc;line-height:1.3;">
+                        ${card.card_master.skills.active.description || card.card_master.skills.active.desc || ''}
+                    </div>
+                </div>
+            ` : ''}
+            
+            ${card.card_master?.skills?.passive?.name ? `
+                <div style="background:rgba(0,0,0,0.3);padding:8px;border-radius:6px;margin-top:6px;">
+                    <div style="font-weight:bold;color:#a78bfa;font-size:12px;margin-bottom:3px;">
+                        패시브: ${card.card_master.skills.passive.name}
+                    </div>
+                    <div style="font-size:11px;color:#cccccc;line-height:1.3;">
+                        ${card.card_master.skills.passive.description || card.card_master.skills.passive.desc || ''}
+                    </div>
+                </div>
+            ` : ''}
+        `;
+        host.appendChild(cardEl);
+    });
+};
+// 필터 설정 함수
+window.setupCardFilters = function() {
+    // 필터 이벤트 리스너 설정
+    const searchInput = document.getElementById('cardSearchInput');
+    const sortSelect = document.getElementById('cardSortSelect');
+    const jobSelect = document.getElementById('cardJobSelect');
+    const affinitySelect = document.getElementById('cardAffinitySelect');
+    const resetBtn = document.getElementById('cardFilterReset');
+    
+    const applyFilters = () => {
+        let filtered = [...allCards];
+        
+        // 검색 필터
+        const searchTerm = searchInput?.value.toLowerCase() || '';
+        if (searchTerm) {
+            filtered = filtered.filter(card => 
+                card.card_master.name.toLowerCase().includes(searchTerm)
+            );
+        }
+        
+        // 직업 필터
+        const selectedJob = jobSelect?.value || '';
+        if (selectedJob) {
+            filtered = filtered.filter(card => 
+                card.card_master.main_job === selectedJob || 
+                card.card_master.sub_job === selectedJob
+            );
+        }
+        
+        // 속성 필터
+        const selectedAffinity = affinitySelect?.value || '';
+        if (selectedAffinity) {
+            filtered = filtered.filter(card => 
+                card.card_master.base_stats?.affinity?.toLowerCase() === selectedAffinity.toLowerCase()
+            );
+        }
+        
+        // 정렬
+        const sortBy = sortSelect?.value || 'name';
+        filtered.sort((a, b) => {
+            const aStats = applyRarity(a.card_master.base_stats || {}, a.rarity);
+            const bStats = applyRarity(b.card_master.base_stats || {}, b.rarity);
+            
+            switch(sortBy) {
+                case 'rarity':
+                    const aIdx = RARITY_ORDER.indexOf(normRarity(a.rarity));
+                    const bIdx = RARITY_ORDER.indexOf(normRarity(b.rarity));
+                    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+                case 'hp':
+                    return (bStats.hp || 0) - (aStats.hp || 0);
+                case 'atk':
+                    return (bStats.atk || 0) - (aStats.atk || 0);
+                case 'def':
+                    return (bStats.def || 0) - (aStats.def || 0);
+                case 'spd':
+                    return (bStats.spd || 0) - (aStats.spd || 0);
+                default:
+                    return a.card_master.name.localeCompare(b.card_master.name, 'ko');
+            }
+        });
+        
+        filteredCards = filtered;
+        renderCollection(filtered);
+    };
+    
+    if (searchInput) searchInput.addEventListener('input', applyFilters);
+    if (sortSelect) sortSelect.addEventListener('change', applyFilters);
+    if (jobSelect) jobSelect.addEventListener('change', applyFilters);
+    if (affinitySelect) affinitySelect.addEventListener('change', applyFilters);
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            if (searchInput) searchInput.value = '';
+            if (sortSelect) sortSelect.value = 'name';
+            if (jobSelect) jobSelect.value = '';
+            if (affinitySelect) affinitySelect.value = '';
+            renderCollection(allCards);
+        });
+    }
+};
+
+// 간단 헬퍼
+const byId = (id)=>document.getElementById(id);
+const baseOf = s => (window.CardUtils?.parseSlug(s)?.base) || s;
+
+// GPT 수정사항 2-3: card_master가 없을 때 lazy-fill
+async function fetchMasterIfMissing(userCard) {
+  try {
+    if (userCard?.card_master || !userCard?.card_slug) return userCard;
+    const { data: rows, error } = await sb
+      .from('card_master')
+      .select('slug, name, portrait_url, base_stats, skills, main_job, sub_job')
+      .eq('slug', userCard.card_slug)
+      .limit(1);
+    if (!error && rows && rows[0]) {
+      userCard.card_master = rows[0];
+    }
+  } catch(_) {}
+  return userCard;
+}
+
+// 1) 덱 화면 진입 훅 - 개선
+window.onEnterDeckScreen = async function(){
+  try{
+    console.log('[DEBUG] onEnterDeckScreen 시작');
+    
+    // GPT 수정사항 2-1: 로딩 실패 시 안전 가드
+    // 보유 카드를 먼저 로드 + 렌더
+    await loadOwnedFromServer();
+    console.log('[DEBUG] loadOwnedFromServer 완료');
+    
+    // 그 다음에 덱 로드
+    const decksLoaded = await loadDeckFromServer().then(()=>true).catch(()=>false);
+    if (!decksLoaded) {
+      console.warn('[onEnterDeckScreen] 덱 로드 실패');
+      return;  // 안전 가드
+    }
+    console.log('[DEBUG] loadDeckFromServer 완료, playerData.decks:', window.playerData?.decks);
+
+    // 임시 덱 상태 싱크 (10칸 보장) - card_master 정보 포함
+    const decks = (window.playerData?.decks)||[[],[],[],[]];
+    window.tempDeckState = window.tempDeckState || {decks:[[],[],[],[]],originalDecks:[[],[],[],[]],isDirty:[false,false,false,false]};
+    
+    console.log('[DEBUG] 덱 데이터 변환 시작, 원본 decks:', decks);
+    
+    for(let i=0;i<4;i++){
+      const dst = new Array(10).fill(null);
+      (decks[i]||[]).forEach((it,idx)=>{ 
+        if(idx<10) {
+         // card_master 정보 포함하여 저장
+dst[idx] = it ? {
+  user_card_id: it.user_card_id,
+  card_slug: it.card_slug,
+  rarity: it.rarity,
+  card_master: it.card_master || 
+    window.allUserCards?.find(uc => uc.id === it.user_card_id)?.card_master ||
+    window.userCardById?.[it.user_card_id]?.card_master ||
+    null
+} : null;
+
+if (it && idx === 0) {
+  console.log(`[DEBUG] 덱 ${i} 첫 번째 카드 매칭 결과:`, dst[idx]);
+  console.log(`[DEBUG] user_card_id ${it.user_card_id}로 찾은 card_master:`, dst[idx].card_master);
+}
+          
+          if (it && idx === 0) {
+            console.log(`[DEBUG] 덱 ${i} 첫 번째 카드:`, dst[idx]);
+          }
+        }
+      });
+      window.tempDeckState.decks[i] = dst;
+      window.tempDeckState.originalDecks[i] = (decks[i]||[]).filter(Boolean);
+      window.tempDeckState.isDirty[i] = false;
+    }
+
+    console.log('[DEBUG] tempDeckState 생성 완료:', window.tempDeckState);
+
+    refreshDeckSlots();
+    bindDeckButtons();
+    await restoreMainDeckStar();
+    updateSaveButtonState?.();
+    bindDeckFilters();
+
+    console.log('[DEBUG] onEnterDeckScreen 완료');
+
+    // 진입 완료 신호(옵션)
+    try{ window.parent.postMessage({type:'DECK_READY'}, '*'); }catch(_){}
+  }catch(e){ 
+    console.error('[onEnterDeckScreen]', e); 
+  }
+};// 덱 설정 전용 필터 함수
+window.bindDeckFilters = function() {
+    const search = document.getElementById('search');
+    const sort = document.getElementById('sort');
+    const role = document.getElementById('role');
+    const onlyAvailable = document.getElementById('onlyAvailable');
+    
+    const applyFilters = () => {
+        const searchTerm = search?.value.toLowerCase() || '';
+        const sortBy = sort?.value || 'character';
+        const roleFilter = role?.value || '';
+        const availableOnly = onlyAvailable?.checked || false;
+        
+        let filtered = [...(window.allUserCards || [])];
+        
+        // 검색
+        if (searchTerm) {
+            filtered = filtered.filter(uc => 
+                uc.card_master?.name?.toLowerCase().includes(searchTerm)
+            );
+        }
+        
+        // 직업 필터
+        if (roleFilter) {
+            filtered = filtered.filter(uc => 
+                uc.card_master?.main_job === roleFilter || 
+                uc.card_master?.sub_job === roleFilter
+            );
+        }
+        
+        // 덱에 없는 카드만
+        if (availableOnly) {
+            const currentDeck = window.tempDeckState?.decks?.[getDeckIdx()] || [];
+            const deckIds = currentDeck.map(item => item?.user_card_id).filter(Boolean);
+            filtered = filtered.filter(uc => !deckIds.includes(uc.id));
+        }
+        
+        // 정렬
+        filtered.sort((a, b) => {
+            switch(sortBy) {
+                case 'character':
+                    return (a.card_master?.name || '').localeCompare(b.card_master?.name || '', 'ko');
+                case 'rarity':
+                    const aIdx = RARITY_ORDER.indexOf(normRarity(a.rarity));
+                    const bIdx = RARITY_ORDER.indexOf(normRarity(b.rarity));
+                    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+                case 'atk':
+                    const aStats = applyRarity(a.card_master?.base_stats || {}, a.rarity);
+                    const bStats = applyRarity(b.card_master?.base_stats || {}, b.rarity);
+                    return (bStats.atk || 0) - (aStats.atk || 0);
+                case 'hp':
+                    const aStats2 = applyRarity(a.card_master?.base_stats || {}, a.rarity);
+                    const bStats2 = applyRarity(b.card_master?.base_stats || {}, b.rarity);
+                    return (bStats2.hp || 0) - (aStats2.hp || 0);
+                default:
+                    return 0;
+            }
+        });
+        
+        renderOwnedCards(filtered);
+    };
+    
+
+
+   // 이벤트 바인딩
+if (search && !search.__deck_bound) {
+    search.__deck_bound = true;
+    search.addEventListener('input', applyFilters);
+}
+
+if (sort && !sort.__deck_bound) {
+    sort.__deck_bound = true;
+    sort.addEventListener('change', applyFilters);
+}
+
+if (role && !role.__deck_bound) {
+    role.__deck_bound = true;
+    role.addEventListener('change', applyFilters);
+}
+
+if (onlyAvailable && !onlyAvailable.__deck_bound) {
+    onlyAvailable.__deck_bound = true;
+    onlyAvailable.addEventListener('change', applyFilters);
+}
+};
+// 2) 덱 슬롯 렌더(5×2, 10칸) - 개선
+window.refreshDeckSlots = async function(){
+  console.log('[DEBUG] refreshDeckSlots 호출됨');
+  console.log('[DEBUG] tempDeckState:', window.tempDeckState);
+  
+  const host = byId('deckSlots'); if (!host) return;
+  const idx = (Number(window.currentDeck)||0);
+  const slots = (window.tempDeckState?.decks?.[idx])||[];
+  
+  console.log('[DEBUG] 현재 덱 슬롯들:', slots);
+  console.log('[DEBUG] 첫 번째 슬롯 데이터:', slots[0]);
+  
+  host.innerHTML = '';
+
+  for (let i=0;i<10;i++){
+    const cell = document.createElement('div');
+    const item = slots[i]||null;
+    cell.className = 'slot' + (item ? ' filled' : '') + (item ? ` ${normRarity(item.rarity || 'common')}` : '');
+
+    if (!item){
+      cell.innerHTML = `<div style="opacity:.6">빈 슬롯 ${i+1}</div>`;
+    } else {
+      const master = item.card_master;
+      console.log(`[DEBUG] 슬롯 ${i} card_master:`, master);
+      
+      const name = master?.name || item.card_slug || 'Unknown';
+      const portraits = master?.portrait_url || {};
+      const rarityKey = item.rarity || 'common';
+      const p = (typeof portraits === 'string') ? portraits : (portraits[rarityKey] || portraits.common || '');
+      const img = p.trim() || window.FALLBACK_IMG;
+      
+      console.log(`[DEBUG] 슬롯 ${i} 이미지 URL:`, img);
+      
+      // 카드 이미지만 표시
+      cell.innerHTML = `
+        <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;overflow:hidden;">
+          ${window.renderCardMedia(img, name)}
+        </div>
+      `;
+      
+      // 카드 클릭 시 상세 정보 표시 - 전체 정보 전달
+      cell.addEventListener('click', () => {
+        selectCardForDetail({
+          id: item.user_card_id || null,
+          card_slug: item.card_slug,
+          rarity: item.rarity || 'common',
+          card_master: master
+        });
+      });
+    }
+    host.appendChild(cell);
+  }
+
+  // 상단 타이틀/카운터
+  try{
+    const count = slots.filter(Boolean).length;
+    const title = byId('deckTitle'); if (title) title.textContent = `덱 ${idx+1} (${count}/10)`;
+    const counter = byId(`deck-count-${idx}`); if (counter) counter.textContent = `${count}/10`;
+  }catch(_){}
+};
+// 3) 상세 패널 채우기 - GPT 수정사항 2-3: async로 변경 및 lazy-fill 적용
+window.selectCardForDetail = async function(userCard){
+  // GPT 수정사항: card_master가 없으면 가져오기
+  userCard = await fetchMasterIfMissing(userCard);
+  
+  const cm   = userCard?.card_master || null;
+  const name = cm?.name || userCard?.card_slug || '선택된 카드 없음';
+  // GPT 수정사항 1: 빈 문자열 방어
+  const portraits = cm?.portrait_url || {};
+  const rarityKey = userCard?.rarity || 'common';
+  const p = (typeof portraits === 'string') ? portraits : (portraits[rarityKey] || portraits.common || '');
+  const img = p.trim() || window.FALLBACK_IMG;
+  const baseStats = cm?.base_stats || {hp:0, atk:0, def:0, spd:0};
+  const stats = applyRarity(baseStats, userCard?.rarity);
+  const mainJob = cm?.main_job || '';
+  const subJob = cm?.sub_job || '';
+  const affinity = baseStats?.affinity || '';
+
+  // 이미지 표시 수정
+  const media = byId('cardMedia'); 
+ if (media) {
+    if (img) {
+      media.innerHTML = window.renderCardMedia(img, name);
+    } else {
+      media.innerHTML = `<div style="color:#9aa1c6;font-size:14px;">No Image</div>`;
+    }
+  }
+  
+  // 이름과 희귀도를 같은 줄에 표시
+  const detailName = byId('detailName');
+  if (detailName) {
+    detailName.innerHTML = `
+      ${name}
+      ${userCard?.rarity ? `<span class="rarity-badge rarity-${normRarity(userCard.rarity)}" style="margin-left:8px;">${displayRarity(userCard.rarity)}</span>` : ''}
+    `;
+  }
+  
+  // 직업과 속성 배지를 다음 줄에 표시
+  const detailChips = byId('detailChips');
+  if (detailChips) {
+    detailChips.innerHTML = `
+      ${mainJob ? `
+        <span style="display:inline-block;padding:2px 8px;background:var(--role-${mainJob?.toLowerCase() === '딜러' ? 'dealer' : mainJob?.toLowerCase() === '탱커' ? 'tank' : mainJob?.toLowerCase() === '브루저' ? 'bruiser' : mainJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:6px;font-size:12px;margin-right:5px;">
+          ${mainJob}
+        </span>
+      ` : ''}
+      ${subJob ? `
+        <span style="display:inline-block;padding:2px 8px;background:var(--role-${subJob?.toLowerCase() === '딜러' ? 'dealer' : subJob?.toLowerCase() === '탱커' ? 'tank' : subJob?.toLowerCase() === '브루저' ? 'bruiser' : subJob?.toLowerCase() === '서포터' ? 'support' : 'controller'});color:white;border-radius:6px;font-size:12px;margin-right:5px;">
+          ${subJob}
+        </span>
+      ` : ''}
+      ${affinity ? `
+        <span style="display:inline-block;padding:2px 8px;background:var(--affinity-${affinity.toLowerCase()});color:white;border-radius:6px;font-size:12px;">
+          ${affinity}
+        </span>
+      ` : ''}
+    `;
+  }
+  
+  byId('statHP').textContent = String(stats.hp||0);
+  byId('statATK').textContent = String(stats.atk||0);
+  byId('statDEF').textContent = String(stats.def||0);
+  byId('statSPD').textContent = String(stats.spd||0);
+  
+  // 스킬명과 설명 모두 표시
+  const activeSkill = cm?.skills?.active;
+  const passiveSkill = cm?.skills?.passive;
+  
+  const activeEl = byId('skillActive');
+  if (activeEl) {
+    const activeName = activeSkill?.name || '액티브';
+    const activeDesc = activeSkill?.description || activeSkill?.desc || '-';
+    activeEl.innerHTML = `<strong>${activeName}:</strong> ${activeDesc}`;
+  }
+  
+  const passiveEl = byId('skillPassive');
+  if (passiveEl) {
+    const passiveName = passiveSkill?.name || '패시브';
+    const passiveDesc = passiveSkill?.description || passiveSkill?.desc || '-';
+    passiveEl.innerHTML = `<strong>${passiveName}:</strong> ${passiveDesc}`;
+  }
+
+  const btnAdd = byId('btnAdd'), btnRem = byId('btnRemove');
+  if (btnAdd) btnAdd.disabled = false;
+  if (btnRem) btnRem.disabled = false;
+
+  window.__selectedUserCard = {
+    user_card_id: userCard.id || null,
+    card_slug: userCard.card_slug,
+    rarity: userCard.rarity || 'common',
+    card_master: cm  // card_master 정보 추가
+  };
+};
+
+// 4) 덱 패널 버튼 바인딩 (중복 방지)
+function bindDeckButtons(){
+  // 기존 리스너 제거를 위해 새 버튼 생성 방식 사용
+  const clearBtn = byId('btnClear');
+  if (clearBtn) {
+    const newClearBtn = clearBtn.cloneNode(true);
+    clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
+    newClearBtn.addEventListener('click', ()=>{
+      const idx = Number(window.currentDeck)||0;
+      if (!confirm(`덱 ${idx+1}의 모든 카드를 비울까요?`)) return;
+      window.tempDeckState.decks[idx] = new Array(10).fill(null);
+      window.tempDeckState.isDirty[idx] = true;
+      refreshDeckSlots();
+      updateSaveButtonState?.();
+    });
+  }
+
+  const addBtn = byId('btnAdd');
+  if (addBtn) {
+    const newAddBtn = addBtn.cloneNode(true);
+    addBtn.parentNode.replaceChild(newAddBtn, addBtn);
+    newAddBtn.addEventListener('click', ()=>{
+      const sel = window.__selectedUserCard; 
+      if (!sel){ 
+        alert('카드를 먼저 선택하세요.'); 
+        return; 
+      }
+      const idx = Number(window.currentDeck)||0;
+      const arr = window.tempDeckState.decks[idx];
+      
+      // 중복 체크
+      const dup = arr.some(x => x && (sel.user_card_id ? x.user_card_id===sel.user_card_id : x.card_slug===sel.card_slug));
+      if (dup){ 
+        alert('이미 덱에 있는 카드입니다.'); 
+        return; 
+      }
+      
+      // 빈 슬롯 찾기
+      const slot = arr.findIndex(x => x==null); 
+      if (slot===-1){ 
+        alert('덱이 가득 찼습니다.'); 
+        return; 
+      }
+      
+      // 카드 추가 - card_master 정보 포함
+      arr[slot] = {
+        user_card_id: sel.user_card_id,
+        card_slug: sel.card_slug,
+        rarity: sel.rarity,
+        card_master: sel.card_master || null
+      };
+      window.tempDeckState.isDirty[idx] = true;
+      refreshDeckSlots();
+      updateSaveButtonState?.();
+    });
+  }
+
+  const removeBtn = byId('btnRemove');
+  if (removeBtn) {
+    const newRemoveBtn = removeBtn.cloneNode(true);
+    removeBtn.parentNode.replaceChild(newRemoveBtn, removeBtn);
+    newRemoveBtn.addEventListener('click', ()=>{
+      const sel = window.__selectedUserCard; 
+      if (!sel){ 
+        alert('삭제할 카드를 먼저 선택하세요.'); 
+        return; 
+      }
+      const idx = Number(window.currentDeck)||0;
+      const arr = window.tempDeckState.decks[idx];
+      
+      // 카드 찾기
+      const pos = arr.findIndex(x => x && (sel.user_card_id ? x.user_card_id===sel.user_card_id : x.card_slug===sel.card_slug));
+      if (pos === -1){ 
+        alert('이 카드가 현재 덱에 없습니다.'); 
+        return; 
+      }
+      
+      // 카드 제거
+      arr[pos] = null;
+      window.tempDeckState.isDirty[idx] = true;
+      refreshDeckSlots();
+      updateSaveButtonState?.();
+    });
+  }
+}
+
+// 덱 탭 전환
+window.selectDeckTab = function(idx) {
+    window.currentDeck = idx;
+    
+    // 탭 UI 업데이트
+    document.querySelectorAll('.deck-tab').forEach((tab, i) => {
+        tab.classList.toggle('active', i === idx);
+    });
+    
+    // 슬롯 새로고침
+    refreshDeckSlots();
+    updateSaveButtonState();
+};
+
+// 메인으로 돌아가기
+window.backToMain = function() {
+    showScreen('mainScreen');
+};
+// === 첫 로그인 보상 모달 표시 함수 ===
+function showFirstLoginRewardModal() {
+    const modal = document.getElementById('firstLoginModal');
+    const confirmBtn = document.getElementById('confirmFirstReward');
+    
+    if (!modal) return;
+    
+    document.body.appendChild(modal);
+    modal.style.display = 'flex';
+    
+    confirmBtn.onclick = async () => {
+        modal.style.display = 'none';
+        // 서버에서 10장 카드 받기
+        getFirstLoginReward();
+    };
+}
+// === 첫 로그인 보상 받기 ===
+async function getFirstLoginReward() {
+    try {
+        const response = await fetch('https://ezuvoqehzojiqmzatzbf.supabase.co/functions/v1/first-login-reward', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${await getAccessToken()}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.ok) {
+            // 받은 카드 10장 표시
+            displayFirstLoginCards(data.cards);
+        } else {
+            console.error('보상 받기 실패:', data.error);
+            if (data.error === 'insufficient-stock') {
+                alert(`재고 부족: ${data.available}장만 있습니다.`);
+            }
+        }
+    } catch (error) {
+        console.error('보상 요청 실패:', error);
+    }
+}
+
+// === 액세스 토큰 가져오기 ===
+async function getAccessToken() {
+    if (window.parent && window.parent.__sb_singleton) {
+        const { data: { session } } = await window.parent.__sb_singleton.auth.getSession();
+        return session?.access_token || '';
+    }
+    return '';
+}
+
+// === 10장 카드 표시 ===
+function displayFirstLoginCards(cards) {
+    const modal = document.getElementById('firstLoginCardsModal');
+    const container = document.getElementById('cardsContainer');
+    
+    if (!modal || !container) return;
+    
+    // 컨테이너 초기화
+    container.innerHTML = '';
+    
+    // 10장 카드 생성
+    cards.forEach(card => {
+        const cardEl = createFirstLoginCard(card);
+        container.appendChild(cardEl);
+    });
+    
+    // 모달을 body로 이동하고 표시
+document.body.appendChild(modal);
+modal.style.display = 'flex';
+    
+    // 10초 후 완료 모달로 전환
+    setTimeout(() => {
+        modal.style.display = 'none';
+        showRewardCompleteModal();
+    }, 10000);
+}
+
+// === 카드 엘리먼트 생성 ===
+function createFirstLoginCard(cardData) {
+   const cm = cardData.card_master || {};
+    const rarity = normRarity(cardData.rarity);
+    const portraits = cm?.portrait_url || {};
+    const imgSrc = (typeof portraits === 'string') ? portraits : (portraits[cardData.rarity] || portraits.common || window.FALLBACK_IMG);
+    
+    const card = document.createElement('div');
+    card.className = `first-login-card ${rarity}`;
+    
+    card.innerHTML = `
+        <div style="width:100%;height:100%;position:relative;background:#2a2d3a;border-radius:10px;padding:8px;display:flex;flex-direction:column;">
+           ${window.renderCardMedia(imgSrc, cm.name).replace('style="', 'style="flex:1;border-radius:8px;margin-bottom:6px;')}
+            
+            <div style="color:white;font-size:11px;font-weight:bold;text-align:center;margin:2px 0;">${cm.name || 'Unknown'}</div>
+            
+            <div style="text-align:center;margin:2px 0;">
+                <span class="rarity-badge rarity-${rarity}" style="font-size:9px;padding:1px 4px;">${displayRarity(cardData.rarity)}</span>
+            </div>
+        </div>
+    `;
+    
+    card.style.cursor = 'default';
+    
+    return card;
+}
+// === 보상 완료 모달 ===
+function showRewardCompleteModal() {
+    const modal = document.getElementById('rewardCompleteModal');
+    const confirmBtn = document.getElementById('confirmRewardComplete');
+    
+    if (!modal) return;
+    
+    document.body.appendChild(modal);
+    modal.style.display = 'flex';
+    
+    confirmBtn.onclick = () => {
+        modal.style.display = 'none';
+    };
+
+
+}// 게임 초기화
+document.addEventListener('DOMContentLoaded', () => {
+    // 임베디드 모드에서는 무조건 메인 화면
+    if (EMBEDDED) {
+        showScreen('mainScreen');
+        // 임베디드 모드에서 닉네임 로드
+        loadPlayerName();
+        
+        // 쿨타임 확인하기 (새로 추가된 부분)
+        setTimeout(() => {
+            cooldownManager.initAllCooldowns();
+         // 초기 상태 표시 보장
+            const heroBattle = document.getElementById('heroBattleCooldown');
+            const heroCard = document.getElementById('heroCardCooldown');
+            if (heroBattle && heroBattle.style.display !== 'block') {
+                heroBattle.style.display = 'block';
+            }
+            if (heroCard && heroCard.style.display !== 'block') {
+                heroCard.style.display = 'block';
+            }
+        }, 1);// 첫 로그인 보상 체크 (닉네임 로드 완료 후)
+        setTimeout(() => {
+            console.log('[Main] 2초 후 첫 로그인 체크 시작');
+            checkFirstLoginReward();
+        }, 2000);
+// 쿨타임 시스템 준비
+        setTimeout(() => {
+            console.log('쿨타임 시스템 준비 완료');
+        }, 3000);    } else {
+        showScreen('loginScreen');
+    }
+    
+    // 가챠 버튼 - 부모에게 요청 보내기
+    const drawCardBtn = document.getElementById('drawCardBtn');
+    if (drawCardBtn && EMBEDDED) {
+        drawCardBtn.addEventListener('click', function() {
+            // 부모(런처)에게 가챠 요청 메시지 전송
+            window.parent.postMessage({
+                type: 'DRAW_CARD_REQUEST'
+            }, '*');
+        });
+    }
+    
+    console.log('[Game] FANTRIE TCG 초기화 완료');
+});
+
+// 히어로 버튼 클릭 연결
+(function(){
+  const click = id => document.getElementById(id)?.click();
+
+  // 플레이어 이름 설정 함수 (항상 "님 환영합니다" 형식으로)
+  function setPlayerName(name) {
+    document.getElementById('playerName').textContent = name + ' 님 환영합니다.';
+  }
+
+  // 현재 플레이어 이름에서 순수 닉네임만 추출
+  function getCurrentPlayerName() {
+    const fullText = document.getElementById('playerName').textContent;
+    return fullText.replace(' 님 환영합니다.', '');
+  }
+
+ // 전투하기: 쿨타임 체크 추가
+document.getElementById('heroBtnBattle')?.addEventListener('click', e=>{
+    e.preventDefault();
+    
+    // 쿨타임 체크
+    if (window.battleCooldownActive) {
+        alert('전투 쿨타임 중입니다.');
+        return;
+    }
+    
+    click('battleBtn');
+});
+
+  // 가챠: 기존 #drawCardBtn 클릭 재사용
+  document.getElementById('heroBtnGacha')?.addEventListener('click', e=>{
+    e.preventDefault();
+    click('drawCardBtn');
+  });
+
+  // 덱/컬렉션: 기존 화면 전환 재사용
+  document.getElementById('heroBtnDeck')?.addEventListener('click', e=>{
+    e.preventDefault();
+    if (typeof showScreen==='function') showScreen('deckScreen');
+  });
+  document.getElementById('heroBtnCollection')?.addEventListener('click', e=>{
+    e.preventDefault();
+    if (typeof showScreen==='function') showScreen('cardsScreen');
+  });
+
+ // 닉네임 변경: 커스텀 모달 사용
+  document.getElementById('heroBtnName')?.addEventListener('click', async e=>{
+    e.preventDefault();
+    console.log('닉네임 변경 버튼 클릭됨'); // 디버깅용
+    
+    // 모달 요소들 가져오기
+    const modal = document.getElementById('nicknameModal');
+    const input = document.getElementById('nicknameInput');
+    const confirmBtn = document.getElementById('confirmNickname');
+    const cancelBtn = document.getElementById('cancelNickname');
+    
+    if (!modal) {
+        console.error('모달을 찾을 수 없습니다');
+        alert('모달 시스템 오류');
+        return;
+    }
+    
+    const currentName = getCurrentPlayerName();
+    input.value = currentName;
+    modal.style.display = 'flex';
+    setTimeout(() => input.focus(), 100);
+    
+    // 버튼 이벤트 설정
+    confirmBtn.onclick = async () => {
+        const newName = input.value.trim();
+        if (newName) {
+            const success = await savePlayerName(newName);
+           if (success) {
+    location.reload();  // ← 이렇게 바꾸기
+}
+        }
+        modal.style.display = 'none';
+    };
+    
+    cancelBtn.onclick = () => {
+        modal.style.display = 'none';
+    };
+    
+    // Enter 키로 확인
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            confirmBtn.click();
+        } else if (e.key === 'Escape') {
+            cancelBtn.click();
+        }
+    };
+  });
+  
+ document.getElementById('heroBtnRanking')?.addEventListener('click', async e=>{
+    e.preventDefault();
+    
+    const modal = document.getElementById('rankingModal');
+    const rankingList = document.getElementById('rankingList');
+    const closeBtn = document.getElementById('closeRanking');
+    
+    if (!modal || !rankingList) {
+        alert('랭킹 모달을 찾을 수 없습니다.');
+        return;
+    }
+    
+    // 로딩 표시
+    rankingList.innerHTML = '<div style="text-align:center;padding:40px;color:#9aa1c6;">랭킹 로딩 중...</div>';
+    modal.style.display = 'flex';
+    
+    try {
+        const uid = await getUID();
+        
+        // 리더보드 데이터 가져오기
+        const { data: leaderboard, error } = await sb
+            .from('v_pvp_leaderboard_alltime')
+            .select('rank, display_name, pvp_score, wins, losses, draws')
+            .order('rank', { ascending: true })
+            .limit(10);
+        
+        if (error) throw error;
+        
+        if (!leaderboard || leaderboard.length === 0) {
+            rankingList.innerHTML = '<div style="text-align:center;padding:40px;color:#9aa1c6;">랭킹 데이터가 없습니다.</div>';
+            return;
+        }
+        
+        // 랭킹 리스트 생성
+        let html = '';
+        leaderboard.forEach(player => {
+            const rank = player.rank;
+            const name = player.display_name || 'Unknown';
+            const score = player.pvp_score || 0;
+            const wins = player.wins || 0;
+            const losses = player.losses || 0;
+            
+            let medal = '';
+            let itemClass = 'ranking-item';
+            if (rank <= 3) {
+                itemClass += ' top3';
+                if (rank === 1) medal = '🥇';
+                else if (rank === 2) medal = '🥈';
+                else if (rank === 3) medal = '🥉';
+            }
+            
+            html += `
+    <div class="${itemClass}">
+        <div class="player-info">
+            ${medal} ${rank}위 ${name}
+        </div>
+        <div class="score">${score}점(${wins}승${losses}패)</div>
+    </div>
+`;
+        });
+        
+        rankingList.innerHTML = html;
+        
+    } catch (error) {
+        console.error('[Ranking Error]', error);
+        rankingList.innerHTML = '<div style="text-align:center;padding:40px;color:#ff6b6b;">랭킹 조회 실패</div>';
+    }
+    
+    // 닫기 버튼 이벤트
+    closeBtn.onclick = () => {
+        modal.style.display = 'none';
+    };
+});
+})();
+</script>
+<!-- 닉네임 변경 모달 -->
+<div id="nicknameModal" class="nickname-modal">
+    <div class="nickname-modal-content">
+        <h3 style="color: #667eea; margin-bottom: 20px;">닉네임 변경</h3>
+        <input type="text" id="nicknameInput" placeholder="새로운 닉네임을 입력하세요" maxlength="20">
+        <div>
+            <button class="btn-confirm" id="confirmNickname">변경</button>
+            <button class="btn-cancel" id="cancelNickname">취소</button>
+        </div>
+    </div>
+</div>
+
+<!-- 랭킹 모달 -->
+<div id="rankingModal" class="ranking-modal">
+    <div class="ranking-modal-content">
+<!-- 첫 로그인 보상 모달 -->
+<div id="firstLoginModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); display: none; justify-content: center; align-items: center; z-index: 99999; backdrop-filter: blur(5px);">
+    <div class="nickname-modal-content">
+        <h3 style="color: #667eea; margin-bottom: 20px;">환영합니다!</h3>
+        <p style="color: #e9ecff; margin-bottom: 20px;">첫 로그인 보상으로 카드 10장을 지급합니다.</p>
+        <button class="btn-confirm" id="confirmFirstReward">확인</button>
+    </div>
+</div>
+
+<!-- 카드 표시 모달 -->
+<div id="firstLoginCardsModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: none; justify-content: center; align-items: center; z-index: 100000;">
+    <div id="cardsContainer" style="display: grid; grid-template-columns: repeat(5, 1fr); column-gap: 25px; row-gap: 50px; padding: 20px;">
+        <!-- 카드들이 여기 동적으로 생성됨 -->
+    </div>
+</div>
+
+<!-- 보상 완료 모달 -->
+<div id="rewardCompleteModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); display: none; justify-content: center; align-items: center; z-index: 99999; backdrop-filter: blur(5px);">
+    <div class="nickname-modal-content">
+        <h3 style="color: #667eea; margin-bottom: 20px;">보상 지급 완료</h3>
+        <p style="color: #e9ecff; margin-bottom: 20px;">카드가 지급되었습니다. 내 카드 보기에서 확인해 보세요.</p>
+        <button class="btn-confirm" id="confirmRewardComplete">확인</button>
+    </div>
+</div>
+
+        <h3>🏆 PVP 랭킹</h3>
+        <div id="rankingList" class="ranking-list">
+            <!-- 랭킹 데이터가 여기에 들어갑니다 -->
+        </div>
+        <button id="closeRanking">닫기</button>
+    </div>
+</div>
+<!-- 덱 부족 알림 모달 -->
+<div id="deckWarningModal" class="nickname-modal">
+    <div class="nickname-modal-content">
+        <h3 style="color: #667eea; margin-bottom: 20px;">덱이 부족합니다</h3>
+        <p style="color: #e9ecff; margin-bottom: 20px;">덱에 10장의 카드를 채워주세요.</p>
+        <button class="btn-confirm" id="confirmDeckWarning">확인</button>
+    </div>
+</div>
+</body>
+</html>
