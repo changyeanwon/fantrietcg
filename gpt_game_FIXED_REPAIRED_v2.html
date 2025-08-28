@@ -1842,12 +1842,12 @@ input.input, select {
 <!-- 쿨타임 표시 영역 -->
 <!-- 전투하기 쿨타임 (중앙 하단) -->
 <div style="position: absolute; left: 44.3%; bottom: 86px; transform: translateX(-50%); z-index: 5;">
-  <div class="cooldown-timer" id="heroBattleCooldown" style="font-size: 14px;">전투 가능!</div>
+  <div class="cooldown-timer" id="heroBattleCooldown" style="font-size:14px; display:none;">전투 가능!</div>
 </div>
 
 <!-- 카드뽑기 쿨타임 (오른쪽 하단) -->
 <div style="position: absolute; left: 64.5%; bottom: 86px; transform: translateX(-50%); z-index: 5;">
-  <div class="cooldown-timer" id="heroCardCooldown" style="font-size: 14px;">카드뽑기 가능!</div>
+  <div class="cooldown-timer" id="heroCardCooldown" style="font-size: 14px; display:none;">카드뽑기 가능!</div>
 </div>
         </div>
         
@@ -2118,6 +2118,32 @@ window.addEventListener('message', function(event) {
         window.simpleCooldown.start('battle', event.data.remaining_ms || 0);
     }
 });
+<script>
+  // 로그인 완료 시 쿨타임/버튼/라벨 재반영
+  window.addEventListener('message', function (e) {
+    if (e && e.data && e.data.type === 'LOGIN_COMPLETE') {
+      try {
+        // 서버 기준(프로필의 last_match_at / last_draw_time)으로 다시 계산
+        if (typeof cooldownManager?.initAllCooldowns === 'function') {
+          cooldownManager.initAllCooldowns();    // 라벨 표시도 내부에서 display:block 처리됨
+        }
+        // 버튼 시각상태 보정(선택적)
+        const battleBtn = document.getElementById('battleBtn');
+        const drawBtn   = document.getElementById('drawCardBtn');
+        if (battleBtn) battleBtn.style.opacity = battleBtn.disabled ? '0.5' : '1';
+        if (drawBtn)   drawBtn.style.opacity   = drawBtn.disabled   ? '0.5' : '1';
+
+        // 혹시 라벨이 여전히 숨김이면 강제로 보이기
+        const heroBattle = document.getElementById('heroBattleCooldown');
+        const heroCard   = document.getElementById('heroCardCooldown');
+        if (heroBattle) heroBattle.style.display = 'block';
+        if (heroCard)   heroCard.style.display   = 'block';
+      } catch (err) {
+        console.warn('[LOGIN_COMPLETE handler]', err);
+      }
+    }
+  });
+</script>
 
 // 서버 시간 기준 쿨타임 계산
 function calculateRemainingTime(lastActionTime, cooldownMinutes) {
@@ -5695,6 +5721,11 @@ function showRewardCompleteModal() {
 
 }// 게임 초기화
 document.addEventListener('DOMContentLoaded', () => {
+    // 로그인/쿨타임 동기화 전에 잠깐 비활성화
+  const battleBtn = document.getElementById('battleBtn');
+  const drawBtn   = document.getElementById('drawCardBtn');
+  if (battleBtn) { battleBtn.disabled = true; battleBtn.style.opacity = '0.5'; }
+  if (drawBtn)   { drawBtn.disabled   = true; drawBtn.style.opacity   = '0.5'; }
     // 임베디드 모드에서는 무조건 메인 화면
     if (EMBEDDED) {
         showScreen('mainScreen');
