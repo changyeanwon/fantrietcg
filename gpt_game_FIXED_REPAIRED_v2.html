@@ -2141,9 +2141,35 @@ window.addEventListener('message', function(event) {
 });
 
 // 로그인 완료 시 쿨타임/버튼/라벨 재반영
-  window.addEventListener('message', function (e) {
+  // 로그인 완료 시 쿨타임/버튼/라벨 재반영 + 첫 로그인 시 자동 새로고침
+  window.addEventListener('message', async function (e) {
     if (e && e.data && e.data.type === 'LOGIN_COMPLETE') {
       try {
+        console.log('[LOGIN_COMPLETE] 로그인 완료 감지');
+        
+        // 첫 로그인 여부 확인
+        const sb = window.parent?.__sb_singleton;
+        if (sb) {
+          const { data: { session } } = await sb.auth.getSession();
+          if (session?.user?.id) {
+            const { data: profile } = await sb
+              .from('user_profiles')
+              .select('first_login_rewarded')
+              .eq('user_id', session.user.id)
+              .maybeSingle();
+            
+            // 첫 로그인이면 자동 새로고침
+            if (!profile?.first_login_rewarded) {
+              console.log('[LOGIN_COMPLETE] 첫 로그인 감지 - 페이지 새로고침');
+              setTimeout(() => {
+                location.reload();
+              }, 500); // 0.5초 후 새로고침
+              return;
+            }
+          }
+        }
+        
+        // 기존 사용자의 경우 기존 로직 실행
         // 서버 기준(프로필의 last_match_at / last_draw_time)으로 다시 계산
         if (typeof cooldownManager?.initAllCooldowns === 'function') {
           cooldownManager.initAllCooldowns();    // 라벨 표시도 내부에서 display:block 처리됨
@@ -2169,15 +2195,13 @@ window.addEventListener('message', function(event) {
 function calculateRemainingTime(lastActionTime, cooldownMinutes) {
     if (!lastActionTime) return 0;
     
-    // 서버 시간 오프셋 적용
-    const serverNow = Date.now() - (window.__serverOffsetMs || 0);
+    const now = Date.now();  // 서버 오프셋 제거
     const lastAction = new Date(lastActionTime).getTime();
     const cooldownMs = cooldownMinutes * 60 * 1000;
-    const elapsed = serverNow - lastAction;
+    const elapsed = now - lastAction;
     
     return Math.max(0, cooldownMs - elapsed);
 }
-
 // 시간을 "분 초" 형식으로 변환
 function formatTime(ms) {
     const totalSeconds = Math.ceil(ms / 1000);
@@ -2208,6 +2232,33 @@ function updateCooldownDisplay(elementIds, remainingMs, readyText, buttonId) {
     }
   }
 
+  // 히어로 버튼도 같이 업데이트
+  if (buttonId === 'battleBtn') {
+    const heroBtn = document.getElementById('heroBtnBattle');
+    if (heroBtn) {
+      if (remainingMs <= 0) {
+        heroBtn.style.opacity = '1';
+        heroBtn.style.pointerEvents = 'auto';
+      } else {
+        heroBtn.style.opacity = '0.5';
+        heroBtn.style.pointerEvents = 'none';
+      }
+    }
+  }
+  
+  if (buttonId === 'drawCardBtn') {
+    const heroBtn = document.getElementById('heroBtnGacha');
+    if (heroBtn) {
+      if (remainingMs <= 0) {
+        heroBtn.style.opacity = '1';
+        heroBtn.style.pointerEvents = 'auto';
+      } else {
+        heroBtn.style.opacity = '0.5';
+        heroBtn.style.pointerEvents = 'none';
+      }
+    }
+  }
+
   // 라벨들 일괄 갱신 (히어로 + 패널 동시)
   ids.forEach(id => {
     const el = document.getElementById(id);
@@ -2222,7 +2273,6 @@ function updateCooldownDisplay(elementIds, remainingMs, readyText, buttonId) {
     }
   });
 }
-
 // 쿨타임 관리 객체
 const cooldownManager = {
     intervals: {},
@@ -2244,14 +2294,14 @@ const cooldownManager = {
 
 const updateCountdown = () => {
   const remaining = calculateRemainingTime(lastActionTime, cooldownMinutes);
+  const cfg = config[type];  // 이 줄 추가
   updateCooldownDisplay(cfg.elementIds, remaining, cfg.readyText, cfg.buttonId);
 
   if (remaining <= 0) {
     clearInterval(this.intervals[type]);
     delete this.intervals[type];
   }
-};
-        
+};        
         // 즉시 업데이트
         updateCountdown();
 // 히어로 버튼도 함께 비활성화/활성화
@@ -2485,7 +2535,7 @@ if (!window.__revealListenerBound) {
         }
         // 가차 후 즉시 쿨타임 시작
         const drawTime = new Date().toISOString();
-        cooldownManager.startCooldown('draw', drawTime, 60);
+        cooldownManager.startCooldown('draw', new Date().toISOString(), 60);
       }
     }
   });
