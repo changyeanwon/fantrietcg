@@ -2192,27 +2192,35 @@ function formatTime(ms) {
 }
 
 // 쿨타임 카운트다운 업데이트
-function updateCooldownDisplay(elementId, remainingMs, readyText, buttonId) {
-    const element = document.getElementById(elementId);
-    const button = document.getElementById(buttonId);
-    
-    if (!element || !button) return;
-    
+// 여러 라벨을 한 번에 갱신하도록 확장
+function updateCooldownDisplay(elementIds, remainingMs, readyText, buttonId) {
+  const ids = Array.isArray(elementIds) ? elementIds : [elementIds];
+  const button = document.getElementById(buttonId);
+
+  // 버튼 상태 갱신
+  if (button) {
     if (remainingMs <= 0) {
-        // 쿨타임 종료
-        element.textContent = readyText;
-        element.className = 'cooldown-timer ready';
-        element.style.display = 'block';  // 이 줄 추가
-        button.disabled = false;
-        button.style.opacity = '1';
+      button.disabled = false;
+      button.style.opacity = '1';
     } else {
-        // 쿨타임 진행 중
-        element.textContent = formatTime(remainingMs);
-        element.className = 'cooldown-timer';
-        element.style.display = 'block';  // 이 줄 추가
-        button.disabled = true;
-        button.style.opacity = '0.5';
+      button.disabled = true;
+      button.style.opacity = '0.5';
     }
+  }
+
+  // 라벨들 일괄 갱신 (히어로 + 패널 동시)
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = 'block';
+    if (remainingMs <= 0) {
+      el.textContent = readyText;
+      el.className = 'cooldown-timer ready'; // ← 초록
+    } else {
+      el.textContent = formatTime(remainingMs);
+      el.className = 'cooldown-timer';      // ← 빨강(쿨타임 중)
+    }
+  });
 }
 
 // 쿨타임 관리 객체
@@ -2222,36 +2230,27 @@ const cooldownManager = {
     // 쿨타임 시작
     startCooldown(type, lastActionTime, cooldownMinutes) {
         const config = {
-    battle: { 
-        elementId: 'heroBattleCooldown', 
-        buttonId: 'battleBtn', 
-        readyText: '전투 가능!' 
-    },
-    draw: { 
-        elementId: 'heroCardCooldown', 
-        buttonId: 'drawCardBtn', 
-        readyText: '카드뽑기 가능!' 
-    }
+  battle: { 
+    elementIds: ['heroBattleCooldown', 'battleCooldown'], 
+    buttonId: 'battleBtn', 
+    readyText: '전투 가능!' 
+  },
+  draw: { 
+    elementIds: ['heroCardCooldown', 'cardCooldown'], 
+    buttonId: 'drawCardBtn', 
+    readyText: '카드뽑기 가능!' 
+  }
 };
-        
-        const cfg = config[type];
-        if (!cfg) return;
-        
-        // 기존 인터벌 정리
-        if (this.intervals[type]) {
-            clearInterval(this.intervals[type]);
-        }
-        
-        // 카운트다운 업데이트
-        const updateCountdown = () => {
-            const remaining = calculateRemainingTime(lastActionTime, cooldownMinutes);
-            updateCooldownDisplay(cfg.elementId, remaining, cfg.readyText, cfg.buttonId);
-            
-            if (remaining <= 0) {
-                clearInterval(this.intervals[type]);
-                delete this.intervals[type];
-            }
-        };
+
+const updateCountdown = () => {
+  const remaining = calculateRemainingTime(lastActionTime, cooldownMinutes);
+  updateCooldownDisplay(cfg.elementIds, remaining, cfg.readyText, cfg.buttonId);
+
+  if (remaining <= 0) {
+    clearInterval(this.intervals[type]);
+    delete this.intervals[type];
+  }
+};
         
         // 즉시 업데이트
         updateCountdown();
@@ -2289,20 +2288,32 @@ const cooldownManager = {
     },
     
     // 모든 쿨타임 초기화
-    async initAllCooldowns() {
-        const cooldownInfo = await getCooldownInfo();
-        if (!cooldownInfo) return;
-        
-        // 전투 쿨타임 (5분) - 실제 전투 완료 시간 사용
-        if (cooldownInfo.last_match_at) {
-            this.startCooldown('battle', cooldownInfo.last_match_at, 5);
-        }
-        
-        // 가챠 쿨타임 (60분)
-        if (cooldownInfo.last_draw_time) {
-            this.startCooldown('draw', cooldownInfo.last_draw_time, 60);
-        }
-    }
+   async initAllCooldowns() {
+  const info = await getCooldownInfo();
+
+  // 프로필을 못 불러와도, 또는 타임스탬프가 없어도
+  // 기본은 "가능" 상태(remaining=0)로 표시해 UI를 일관되게 유지
+  if (!info) {
+    updateCooldownDisplay(['heroBattleCooldown', 'battleCooldown'], 0, '전투 가능!', 'battleBtn');
+    updateCooldownDisplay(['heroCardCooldown', 'cardCooldown'], 0, '카드뽑기 가능!', 'drawCardBtn');
+    return;
+  }
+
+  // 전투 (5분)
+  const battleRem = calculateRemainingTime(info.last_match_at, 5);
+  updateCooldownDisplay(['heroBattleCooldown', 'battleCooldown'], battleRem, '전투 가능!', 'battleBtn');
+  if (battleRem > 0) {
+    this.startCooldown('battle', info.last_match_at, 5);
+  }
+
+  // 가챠 (60분)
+  const drawRem = calculateRemainingTime(info.last_draw_time, 60);
+  updateCooldownDisplay(['heroCardCooldown', 'cardCooldown'], drawRem, '카드뽑기 가능!', 'drawCardBtn');
+  if (drawRem > 0) {
+    this.startCooldown('draw', info.last_draw_time, 60);
+  }
+}
+
 };
 
 
